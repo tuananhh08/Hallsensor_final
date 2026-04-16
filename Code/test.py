@@ -147,7 +147,7 @@ yaw_rmse_running  = np.sqrt(np.cumsum(ang_err_yaw**2)  / sample_idx)
 # ─── Print table ──────────────────────────────────────────────────────────────
 print(f"\n  {'Pt':<5} {'PX':>8} {'PY':>8} {'PZ':>8} "
       f"{'GX':>8} {'GY':>8} {'GZ':>8} {'Err(mm)':>9} "
-      f"{'Pa°':>8} {'Pb°':>8} {'Ga°':>8} {'Gb°':>8}")
+      f"{'P_pitch°':>8} {'P_yaw°':>8} {'G_pitch°':>8} {'G_yaw°':>8}")
 print("  " + "-" * 110)
 for i in range(N):
     print(f"  {i:<5} "
@@ -208,17 +208,17 @@ ax.scatter(gt_xyz[:, 0],   gt_xyz[:, 1],   gt_xyz[:, 2],
 ax.scatter(pred_xyz[:, 0], pred_xyz[:, 1], pred_xyz[:, 2],
            color="red",  s=30, label="Predicted", zorder=5, marker="x")
 
-for i in range(N):
-    ax.plot([gt_xyz[i,0], pred_xyz[i,0]],
-            [gt_xyz[i,1], pred_xyz[i,1]],
-            [gt_xyz[i,2], pred_xyz[i,2]],
-            color="gray", linewidth=0.5, alpha=0.5)
+# for i in range(N):
+#     ax.plot([gt_xyz[i,0], pred_xyz[i,0]],
+#             [gt_xyz[i,1], pred_xyz[i,1]],
+#             [gt_xyz[i,2], pred_xyz[i,2]],
+#             color="gray", linewidth=0.5, alpha=0.5)
 
 ax.set_xlabel("X (m)")
 ax.set_ylabel("Y (m)")
 ax.set_zlabel("Z (m)")
 ax.set_title(
-    f"Test Set Inference — Separate file ({N} points)\n"
+    f"Test Set Inference ({N} points)\n"
     f"Mean err: {mean_pos*1000:.2f} mm  |  "
     f"RMSE: {rmse_pos*1000:.2f} mm  |  "
     f"Max: {max_pos*1000:.2f} mm",
@@ -239,10 +239,10 @@ ax2.plot(sample_idx, pos_err_per_sample,
          color="#5B9BD5", linewidth=0.8, alpha=0.55, label="Per-sample error")
 ax2.plot(sample_idx, pos_mean_running,
          color="#2E75B6", linewidth=2.0,
-         label=f"Running mean  (final {pos_mean_running[-1]:.2f} mm)")
+         label=f"Mean error  (final {pos_mean_running[-1]:.2f} mm)")
 ax2.plot(sample_idx, pos_rmse_running,
          color="#C55A11", linewidth=2.0, linestyle="--",
-         label=f"Running RMSE  (final {pos_rmse_running[-1]:.2f} mm)")
+         label=f"RMSE (final {pos_rmse_running[-1]:.2f} mm)")
 
 ax2.axhline(mean_pos * 1000, color="#2E75B6", linewidth=0.8, linestyle=":")
 ax2.axhline(rmse_pos * 1000, color="#C55A11", linewidth=0.8, linestyle=":")
@@ -274,10 +274,10 @@ for ax_i, (err_arr, mean_run, rmse_run, name, mean_val, rmse_val) in zip(
               color="#70AD47", linewidth=0.8, alpha=0.55, label="Per-sample error")
     ax_i.plot(sample_idx, mean_run,
               color="#375623", linewidth=2.0,
-              label=f"Running mean  (final {mean_run[-1]:.3f}°)")
+              label=f"Mean error  (final {mean_run[-1]:.3f}°)")
     ax_i.plot(sample_idx, rmse_run,
               color="#843C0C", linewidth=2.0, linestyle="--",
-              label=f"Running RMSE  (final {rmse_run[-1]:.3f}°)")
+              label=f"RMSE (final {rmse_run[-1]:.3f}°)")
 
     ax_i.axhline(mean_val, color="#375623", linewidth=0.8, linestyle=":")
     ax_i.axhline(rmse_val, color="#843C0C", linewidth=0.8, linestyle=":")
