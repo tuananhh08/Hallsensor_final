@@ -1,4 +1,5 @@
 import os, sys, json, pickle, argparse, time
+import uuid
 import numpy as np
 import pandas as pd
 import torch
@@ -41,6 +42,27 @@ def get_config():
 # DATASET
 # =============================================================================
 
+# region agent log helpers
+_DBG_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "debug-eb2a46.log")
+_DBG_SESSION_ID = "eb2a46"
+def _dbg_log(hypothesisId: str, location: str, message: str, data: dict, runId: str = "pre-fix"):
+    try:
+        payload = {
+            "sessionId": _DBG_SESSION_ID,
+            "runId": runId,
+            "hypothesisId": hypothesisId,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "id": f"log_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}",
+        }
+        with open(_DBG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+# endregion
+
 class PoseDataset(Dataset):
     def __init__(self, voltages, labels):
         self.X = torch.tensor(voltages, dtype=torch.float32).view(-1, 1, 8, 8)
@@ -60,10 +82,36 @@ def build_datasets(voltage_path, label_path, val_ratio, scaler_file, seed=42):
             has_header = True
         if has_header:
             df = pd.read_csv(path, header=0)
-        return df.apply(pd.to_numeric, errors="coerce").dropna().reset_index(drop=True)
+        df_num = df.apply(pd.to_numeric, errors="coerce")
+        before = (len(df_num), df_num.shape[1])
+        df_num = df_num.dropna().reset_index(drop=True)
+        after = (len(df_num), df_num.shape[1])
+        _dbg_log(
+            hypothesisId="H1",
+            location="train.py:_read",
+            message="read_csv_auto",
+            data={
+                "path": str(path),
+                "has_header": bool(has_header),
+                "shape_before_dropna": list(before),
+                "shape_after_dropna": list(after),
+            },
+        )
+        return df_num
 
     volt_df  = _read(voltage_path)
     label_df = _read(label_path)
+    _dbg_log(
+        hypothesisId="H1",
+        location="train.py:build_datasets",
+        message="loaded_dataframes",
+        data={
+            "voltage_path": str(voltage_path),
+            "label_path": str(label_path),
+            "volt_shape": list(volt_df.shape),
+            "label_shape": list(label_df.shape),
+        },
+    )
 
     assert volt_df.shape[1]  == 64, f"Voltage can 64 cols, co {volt_df.shape[1]}"
     assert label_df.shape[1] == 5,  f"Label can 5 cols, co {label_df.shape[1]}"
@@ -73,6 +121,22 @@ def build_datasets(voltage_path, label_path, val_ratio, scaler_file, seed=42):
     N        = min(len(voltages), len(labels))
     voltages, labels = voltages[:N], labels[:N]
     print(f"  Total samples: {N:,}")
+    _dbg_log(
+        hypothesisId="H2",
+        location="train.py:build_datasets",
+        message="aligned_arrays",
+        data={
+            "len_voltages_raw": int(len(volt_df)),
+            "len_labels_raw": int(len(label_df)),
+            "N_after_min": int(N),
+            "volt_min": float(np.min(voltages)) if N else None,
+            "volt_max": float(np.max(voltages)) if N else None,
+            "xyz_min": [float(x) for x in np.min(labels[:, :3], axis=0)] if N else None,
+            "xyz_max": [float(x) for x in np.max(labels[:, :3], axis=0)] if N else None,
+            "cos_min": [float(x) for x in np.min(labels[:, 3:], axis=0)] if N else None,
+            "cos_max": [float(x) for x in np.max(labels[:, 3:], axis=0)] if N else None,
+        },
+    )
 
     # Split train / val 
     rng      = np.random.default_rng(seed)
@@ -82,6 +146,25 @@ def build_datasets(voltage_path, label_path, val_ratio, scaler_file, seed=42):
     train_idx = idx[:n_train]
     val_idx   = idx[n_train:]
     print(f"  Train: {n_train:,}  |  Val: {n_val:,}")
+    _dbg_log(
+        hypothesisId="H3",
+        location="train.py:build_datasets",
+        message="split_indices",
+        data={
+            "seed": int(seed),
+            "val_ratio": float(val_ratio),
+            "n_train": int(n_train),
+            "n_val": int(n_val),
+            "idx_unique": int(len(np.unique(idx))),
+            "train_unique": int(len(np.unique(train_idx))),
+            "val_unique": int(len(np.unique(val_idx))),
+            "overlap_train_val": int(len(np.intersect1d(train_idx, val_idx))),
+            "train_min": int(np.min(train_idx)) if n_train else None,
+            "train_max": int(np.max(train_idx)) if n_train else None,
+            "val_min": int(np.min(val_idx)) if n_val else None,
+            "val_max": int(np.max(val_idx)) if n_val else None,
+        },
+    )
 
     # Fit scaler CHỈ trên train
     if os.path.exists(scaler_file):
@@ -90,12 +173,24 @@ def build_datasets(voltage_path, label_path, val_ratio, scaler_file, seed=42):
         volt_scaler  = sc["volt"]
         label_scaler = sc["label"]
         print(f"  Loaded scalers from {scaler_file}")
+        _dbg_log(
+            hypothesisId="H4",
+            location="train.py:build_datasets",
+            message="loaded_existing_scalers",
+            data={"scaler_file": str(scaler_file)},
+        )
     else:
         volt_scaler  = MinMaxScaler(feature_range=(0, 1)).fit(voltages[train_idx])
         label_scaler = StandardScaler().fit(labels[train_idx])
         with open(scaler_file, "wb") as f:
             pickle.dump({"volt": volt_scaler, "label": label_scaler}, f)
         print(f"  Fitted & saved scalers -> {scaler_file}")
+        _dbg_log(
+            hypothesisId="H4",
+            location="train.py:build_datasets",
+            message="fitted_new_scalers",
+            data={"scaler_file": str(scaler_file)},
+        )
 
     # Lưu split info (chỉ train/val)
     split_path = os.path.join(os.path.dirname(scaler_file), "split_info2.json")
@@ -108,6 +203,17 @@ def build_datasets(voltage_path, label_path, val_ratio, scaler_file, seed=42):
 
     v_scaled = volt_scaler.transform(voltages)
     l_scaled = label_scaler.transform(labels)
+    _dbg_log(
+        hypothesisId="H5",
+        location="train.py:build_datasets",
+        message="scaled_stats",
+        data={
+            "v_scaled_min": float(np.min(v_scaled)) if N else None,
+            "v_scaled_max": float(np.max(v_scaled)) if N else None,
+            "l_scaled_mean": [float(x) for x in np.mean(l_scaled, axis=0)] if N else None,
+            "l_scaled_std": [float(x) for x in np.std(l_scaled, axis=0)] if N else None,
+        },
+    )
 
     train_ds = PoseDataset(v_scaled[train_idx], l_scaled[train_idx])
     val_ds   = PoseDataset(v_scaled[val_idx],   l_scaled[val_idx])
