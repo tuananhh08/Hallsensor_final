@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
 
         self._panel.start_clicked.connect(self._start)
         self._panel.stop_clicked.connect(self._stop)
-        self._panel.reset_trail_clicked.connect(self._viewer.reset_trail)
+        self._panel.reset_trail_clicked.connect(self._reset_trail_and_rewind)
         self._panel.source_kind_changed.connect(self._on_source_kind_changed)
         self._panel.rate_hz_changed.connect(self._on_rate_changed)
         self._panel.serial_params_changed.connect(self._on_serial_params_changed)
@@ -130,6 +130,18 @@ class MainWindow(QMainWindow):
         src = self._worker.active_source()
         if isinstance(src, CSVReplaySource):
             src.set_rate_hz(hz)
+
+    def _reset_trail_and_rewind(self) -> None:
+        self._viewer.reset_trail()
+        src = self._worker.active_source()
+        if not isinstance(src, CSVReplaySource):
+            return
+        first_pose = src.rewind_to_start()
+        if first_pose is None:
+            return
+        self._viewer.update_pose(first_pose)
+        self._panel.update_pose_display(np.asarray(first_pose))
+        self._panel.set_status("Trail reset. Replay rewound to start point.")
 
     def _on_serial_params_changed(self, port: str, baud: int) -> None:
         src = self._worker.active_source()
