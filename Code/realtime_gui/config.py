@@ -25,10 +25,10 @@ Z_OFFSET_ABOVE_CENTER_M = 0.01  # z_min = sensor_center_z + this
 ROI_PADDING_M = 0.005  # 5 mm
 
 # --- Visualization ---
-TRAIL_LENGTH = 150
-DEFAULT_RATE_HZ = 30
-CAPSULE_LENGTH_MM = 25
-CAPSULE_SPHERE_RADIUS_MM = 4.0
+TRAIL_LENGTH = 200
+DEFAULT_RATE_HZ = 10
+CAPSULE_LENGTH_MM = 20
+CAPSULE_SPHERE_RADIUS_MM = 1.5
 
 # --- Default data paths (relative to this file's parent: Code/) ---
 _CODE_DIR = Path(__file__).resolve().parent.parent
