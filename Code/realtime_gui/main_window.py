@@ -68,7 +68,7 @@ class MainWindow(QMainWindow):
             src = CSVReplaySource(
                 config.DEFAULT_HELIX_CSV,
                 rate_hz=self._panel.rate_hz(),
-                loop=True,
+                loop=False,
                 parent=self,
             )
         except Exception as e:
@@ -152,7 +152,7 @@ class MainWindow(QMainWindow):
                 src = CSVReplaySource(
                     config.DEFAULT_HELIX_CSV,
                     rate_hz=self._panel.rate_hz(),
-                    loop=True,
+                    loop=False,
                     parent=self,
                 )
                 self._current_csv = src
@@ -163,7 +163,7 @@ class MainWindow(QMainWindow):
                 src = CSVReplaySource(
                     path,
                     rate_hz=self._panel.rate_hz(),
-                    loop=True,
+                    loop=False,
                     parent=self,
                 )
                 self._current_csv = src
