@@ -1,4 +1,4 @@
-"""OpenGL 3D view: ROI box, grid floor, axes, capsule marker, trail."""
+"""OpenGL 3D view: ROI box, sensor map, capsule marker, trail."""
 from __future__ import annotations
 
 from collections import deque
@@ -59,30 +59,6 @@ class Viewer3D(GLViewWidget):
         cx, cy, cz = config.roi_center()
         self._origin = np.array([cx, cy, cz], dtype=np.float64)
 
-        axis_len = 0.03  # 30 mm
-        ox, oy, oz = float(self._origin[0]), float(self._origin[1]), float(self._origin[2])
-        self._axis_x = gl.GLLinePlotItem(
-            pos=np.array([[ox, oy, oz], [ox + axis_len, oy, oz]], dtype=np.float64),
-            color=(1.0, 0.2, 0.2, 1.0),
-            width=3,
-            antialias=True,
-        )
-        self._axis_y = gl.GLLinePlotItem(
-            pos=np.array([[ox, oy, oz], [ox, oy + axis_len, oz]], dtype=np.float64),
-            color=(0.2, 1.0, 0.2, 1.0),
-            width=3,
-            antialias=True,
-        )
-        self._axis_z = gl.GLLinePlotItem(
-            pos=np.array([[ox, oy, oz], [ox, oy, oz + axis_len]], dtype=np.float64),
-            color=(0.3, 0.5, 1.0, 1.0),
-            width=3,
-            antialias=True,
-        )
-        self.addItem(self._axis_x)
-        self.addItem(self._axis_y)
-        self.addItem(self._axis_z)
-
         # ROI wireframe
         edges = _roi_wireframe_edges(x0, x1, y0, y1, z0, z1)
         self._roi_lines: List[gl.GLLinePlotItem] = []
@@ -95,6 +71,15 @@ class Viewer3D(GLViewWidget):
             )
             self.addItem(item)
             self._roi_lines.append(item)
+
+        sensor_points = config.sensor_map_points()
+        self._sensor_points = gl.GLScatterPlotItem(
+            pos=sensor_points,
+            color=(0.2, 0.9, 0.4, 0.95),
+            size=8,
+            pxMode=True,
+        )
+        self.addItem(self._sensor_points)
 
         # Floor grid at z = z0
         grid = gl.GLGridItem()

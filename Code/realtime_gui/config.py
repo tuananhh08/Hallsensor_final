@@ -1,11 +1,4 @@
-"""
-ROI and visualization constants.
-
-ROI follows the physical layout: center of sensor map + fixed width/depth/height.
-If `Data set/Coordinate/Grid_points_coordinates.csv` exists (relative to repo root),
-sensor_center is the mean of (x,y,z) min/max from that file; otherwise a default
-center is used.
-"""
+"""ROI and visualization constants for realtime GUI."""
 from __future__ import annotations
 
 import os
@@ -36,6 +29,7 @@ _REPO_ROOT = _CODE_DIR.parent
 
 DEFAULT_HELIX_CSV = _REPO_ROOT / "Data set" / "Coordinate" / "Helix_points_coordinates.csv"
 DEFAULT_GRID_CSV = _REPO_ROOT / "Data set" / "Coordinate" / "Grid_points_coordinates.csv"
+DEFAULT_SENSOR_MAP_CSV = _REPO_ROOT / "Data set" / "Coordinate" / "sensors_position_calib.csv"
 DEFAULT_TESTRESULT_CSV = _CODE_DIR / "ckpt" / "testresult.csv"
 
 
@@ -43,19 +37,42 @@ def _default_sensor_center() -> Tuple[float, float, float]:
     return (0.241, 0.684, -0.0535)
 
 
-def compute_sensor_center_from_grid_csv(grid_csv: Path | None = None) -> Tuple[float, float, float]:
-    """Mean of per-axis min/max from grid CSV → center of nominal workspace."""
-    path = grid_csv or DEFAULT_GRID_CSV
+def _center_from_xyz_bounds(path: Path) -> Tuple[float, float, float] | None:
     if not path.is_file():
-        return _default_sensor_center()
+        return None
     df = pd.read_csv(path)
     for col in ("x", "y", "z"):
         if col not in df.columns:
-            return _default_sensor_center()
+            return None
     cx = float((df["x"].min() + df["x"].max()) / 2.0)
     cy = float((df["y"].min() + df["y"].max()) / 2.0)
     cz = float((df["z"].min() + df["z"].max()) / 2.0)
     return (cx, cy, cz)
+
+
+def compute_sensor_center_from_grid_csv(grid_csv: Path | None = None) -> Tuple[float, float, float]:
+    """Mean of per-axis min/max from sensor map (fallback to grid/default)."""
+    sensor_center = _center_from_xyz_bounds(DEFAULT_SENSOR_MAP_CSV)
+    if sensor_center is not None:
+        return sensor_center
+
+    path = grid_csv or DEFAULT_GRID_CSV
+    grid_center = _center_from_xyz_bounds(path)
+    if grid_center is not None:
+        return grid_center
+
+    return _default_sensor_center()
+
+
+def sensor_map_points(sensor_map_csv: Path | None = None) -> np.ndarray:
+    """Returns Nx3 sensor-map points (expected N=64)."""
+    path = sensor_map_csv or DEFAULT_SENSOR_MAP_CSV
+    if not path.is_file():
+        return np.zeros((0, 3), dtype=np.float64)
+    df = pd.read_csv(path)
+    if not all(col in df.columns for col in ("x", "y", "z")):
+        return np.zeros((0, 3), dtype=np.float64)
+    return df[["x", "y", "z"]].to_numpy(dtype=np.float64)
 
 
 def compute_roi_bounds(
