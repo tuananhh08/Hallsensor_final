@@ -1,4 +1,4 @@
-"""OpenGL 3D view: ROI box, sensor map, capsule marker, trail."""
+"""OpenGL 3D view: ROI box, sensor map, cylinder marker, trail."""
 from __future__ import annotations
 
 from collections import deque
@@ -88,8 +88,9 @@ class Viewer3D(GLViewWidget):
         grid.translate((x0 + x1) / 2.0, (y0 + y1) / 2.0, z0)
         self.addItem(grid)
 
-        r_sphere = config.CAPSULE_SPHERE_RADIUS_MM / 1000.0
-        md = gl.MeshData.sphere(rows=18, cols=36, radius=r_sphere)
+        self._cylinder_len = config.CAPSULE_LENGTH_MM / 1000.0
+        r_cyl = config.CAPSULE_CYLINDER_RADIUS_MM / 1000.0
+        md = gl.MeshData.cylinder(rows=24, cols=48, radius=[r_cyl, r_cyl], length=self._cylinder_len)
         self._capsule = gl.GLMeshItem(meshdata=md, smooth=True, color=(1.0, 0.55, 0.1, 0.95))
         self.addItem(self._capsule)
 
@@ -130,13 +131,20 @@ class Viewer3D(GLViewWidget):
         self._last_pose = p
         x, y, z, pitch_deg, yaw_deg = float(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])
 
+        d = config.heading_direction(pitch_deg, yaw_deg)
         self._capsule.resetTransform()
+        z_axis = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        rot_axis = np.cross(z_axis, d)
+        rot_norm = float(np.linalg.norm(rot_axis))
+        if rot_norm > 1e-12:
+            rot_axis /= rot_norm
+            angle_deg = float(np.degrees(np.arccos(np.clip(np.dot(z_axis, d), -1.0, 1.0))))
+            self._capsule.rotate(angle_deg, float(rot_axis[0]), float(rot_axis[1]), float(rot_axis[2]))
         self._capsule.translate(x, y, z)
 
-        L = config.CAPSULE_LENGTH_MM / 1000.0
-        d = config.heading_direction(pitch_deg, yaw_deg)
-        tip = np.array([x, y, z], dtype=np.float64) + d * L
-        self._arrow.setData(pos=np.vstack([[x, y, z], tip]))
+        arrow_start = np.array([x, y, z], dtype=np.float64) + d * (self._cylinder_len / 2.0)
+        arrow_tip = arrow_start + d * (config.ARROW_LENGTH_MM / 1000.0)
+        self._arrow.setData(pos=np.vstack([arrow_start, arrow_tip]))
 
         self._trail.append(np.array([x, y, z], dtype=np.float64))
         if len(self._trail) >= 2:

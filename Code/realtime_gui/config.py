@@ -21,7 +21,8 @@ ROI_PADDING_M = 0.005  # 5 mm
 TRAIL_LENGTH = 200
 DEFAULT_RATE_HZ = 10
 CAPSULE_LENGTH_MM = 20
-CAPSULE_SPHERE_RADIUS_MM = 1.5
+CAPSULE_CYLINDER_RADIUS_MM = 1.5
+ARROW_LENGTH_MM = 8
 
 # --- Default data paths (relative to this file's parent: Code/) ---
 _CODE_DIR = Path(__file__).resolve().parent.parent
