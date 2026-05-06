@@ -1,4 +1,4 @@
-"""OpenGL 3D view: ROI box, grid floor, axes, capsule marker, trail."""
+"""OpenGL 3D view: ROI box, sensor map, vector-based capsule, trail."""
 from __future__ import annotations
 
 from collections import deque
@@ -59,30 +59,6 @@ class Viewer3D(GLViewWidget):
         cx, cy, cz = config.roi_center()
         self._origin = np.array([cx, cy, cz], dtype=np.float64)
 
-        axis_len = 0.03  # 30 mm
-        ox, oy, oz = float(self._origin[0]), float(self._origin[1]), float(self._origin[2])
-        self._axis_x = gl.GLLinePlotItem(
-            pos=np.array([[ox, oy, oz], [ox + axis_len, oy, oz]], dtype=np.float64),
-            color=(1.0, 0.2, 0.2, 1.0),
-            width=3,
-            antialias=True,
-        )
-        self._axis_y = gl.GLLinePlotItem(
-            pos=np.array([[ox, oy, oz], [ox, oy + axis_len, oz]], dtype=np.float64),
-            color=(0.2, 1.0, 0.2, 1.0),
-            width=3,
-            antialias=True,
-        )
-        self._axis_z = gl.GLLinePlotItem(
-            pos=np.array([[ox, oy, oz], [ox, oy, oz + axis_len]], dtype=np.float64),
-            color=(0.3, 0.5, 1.0, 1.0),
-            width=3,
-            antialias=True,
-        )
-        self.addItem(self._axis_x)
-        self.addItem(self._axis_y)
-        self.addItem(self._axis_z)
-
         # ROI wireframe
         edges = _roi_wireframe_edges(x0, x1, y0, y1, z0, z1)
         self._roi_lines: List[gl.GLLinePlotItem] = []
@@ -96,6 +72,15 @@ class Viewer3D(GLViewWidget):
             self.addItem(item)
             self._roi_lines.append(item)
 
+        sensor_points = config.sensor_map_points()
+        self._sensor_points = gl.GLScatterPlotItem(
+            pos=sensor_points,
+            color=(0.2, 0.9, 0.4, 0.95),
+            size=8,
+            pxMode=True,
+        )
+        self.addItem(self._sensor_points)
+
         # Floor grid at z = z0
         grid = gl.GLGridItem()
         grid.setSize(x=abs(x1 - x0) * 1.1, y=abs(y1 - y0) * 1.1)
@@ -103,10 +88,32 @@ class Viewer3D(GLViewWidget):
         grid.translate((x0 + x1) / 2.0, (y0 + y1) / 2.0, z0)
         self.addItem(grid)
 
-        r_sphere = config.CAPSULE_SPHERE_RADIUS_MM / 1000.0
-        md = gl.MeshData.sphere(rows=18, cols=36, radius=r_sphere)
-        self._capsule = gl.GLMeshItem(meshdata=md, smooth=True, color=(1.0, 0.55, 0.1, 0.95))
-        self.addItem(self._capsule)
+        self._capsule_len = config.CAPSULE_LENGTH_MM / 1000.0
+        self._capsule_radius = config.CAPSULE_CYLINDER_RADIUS_MM / 1000.0
+        self._capsule_body = gl.GLLinePlotItem(
+            pos=np.zeros((2, 3), dtype=np.float64),
+            color=(1.0, 0.55, 0.1, 0.95),
+            width=6,
+            antialias=True,
+        )
+        self.addItem(self._capsule_body)
+
+        self._capsule_ring_front = gl.GLLinePlotItem(
+            pos=np.zeros((2, 3), dtype=np.float64),
+            color=(1.0, 0.75, 0.25, 0.8),
+            width=2,
+            antialias=True,
+            mode="line_strip",
+        )
+        self._capsule_ring_back = gl.GLLinePlotItem(
+            pos=np.zeros((2, 3), dtype=np.float64),
+            color=(0.95, 0.45, 0.1, 0.6),
+            width=2,
+            antialias=True,
+            mode="line_strip",
+        )
+        self.addItem(self._capsule_ring_front)
+        self.addItem(self._capsule_ring_back)
 
         self._arrow = gl.GLLinePlotItem(
             pos=np.zeros((2, 3), dtype=np.float64),
@@ -145,13 +152,27 @@ class Viewer3D(GLViewWidget):
         self._last_pose = p
         x, y, z, pitch_deg, yaw_deg = float(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])
 
-        self._capsule.resetTransform()
-        self._capsule.translate(x, y, z)
-
-        L = config.CAPSULE_LENGTH_MM / 1000.0
         d = config.heading_direction(pitch_deg, yaw_deg)
-        tip = np.array([x, y, z], dtype=np.float64) + d * L
-        self._arrow.setData(pos=np.vstack([[x, y, z], tip]))
+        center = np.array([x, y, z], dtype=np.float64)
+        p_back = center - d * (self._capsule_len / 2.0)
+        p_front = center + d * (self._capsule_len / 2.0)
+        self._capsule_body.setData(pos=np.vstack([p_back, p_front]))
+
+        ref = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        if abs(np.dot(ref, d)) > 0.95:
+            ref = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        u = np.cross(d, ref)
+        u /= np.linalg.norm(u)
+        v = np.cross(d, u)
+        v /= np.linalg.norm(v)
+        t = np.linspace(0.0, 2.0 * np.pi, 25)
+        ring_offset = (np.cos(t)[:, None] * u[None, :] + np.sin(t)[:, None] * v[None, :]) * self._capsule_radius
+        self._capsule_ring_front.setData(pos=p_front[None, :] + ring_offset)
+        self._capsule_ring_back.setData(pos=p_back[None, :] + ring_offset)
+
+        arrow_start = p_front
+        arrow_tip = arrow_start + d * (config.ARROW_LENGTH_MM / 1000.0)
+        self._arrow.setData(pos=np.vstack([arrow_start, arrow_tip]))
 
         self._trail.append(np.array([x, y, z], dtype=np.float64))
         if len(self._trail) >= 2:

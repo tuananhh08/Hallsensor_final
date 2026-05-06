@@ -108,6 +108,13 @@ class CSVReplaySource(BaseSource):
         if was:
             self.start()
 
+    def rewind_to_start(self) -> np.ndarray | None:
+        """Reset replay index to first sample and return that sample when available."""
+        self._index = 0
+        if len(self._poses) == 0:
+            return None
+        return np.asarray(self._poses[0], dtype=np.float64)
+
     def start(self) -> None:
         if self._running or len(self._poses) == 0:
             return
