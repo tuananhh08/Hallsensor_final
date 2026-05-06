@@ -1,4 +1,4 @@
-"""OpenGL 3D view: ROI box, sensor map, vector-based capsule, trail."""
+"""OpenGL 3D view: ROI box, sensor map, cylinder marker, trail."""
 from __future__ import annotations
 
 from collections import deque
@@ -88,32 +88,11 @@ class Viewer3D(GLViewWidget):
         grid.translate((x0 + x1) / 2.0, (y0 + y1) / 2.0, z0)
         self.addItem(grid)
 
-        self._capsule_len = config.CAPSULE_LENGTH_MM / 1000.0
-        self._capsule_radius = config.CAPSULE_CYLINDER_RADIUS_MM / 1000.0
-        self._capsule_body = gl.GLLinePlotItem(
-            pos=np.zeros((2, 3), dtype=np.float64),
-            color=(1.0, 0.55, 0.1, 0.95),
-            width=6,
-            antialias=True,
-        )
-        self.addItem(self._capsule_body)
-
-        self._capsule_ring_front = gl.GLLinePlotItem(
-            pos=np.zeros((2, 3), dtype=np.float64),
-            color=(1.0, 0.75, 0.25, 0.8),
-            width=2,
-            antialias=True,
-            mode="line_strip",
-        )
-        self._capsule_ring_back = gl.GLLinePlotItem(
-            pos=np.zeros((2, 3), dtype=np.float64),
-            color=(0.95, 0.45, 0.1, 0.6),
-            width=2,
-            antialias=True,
-            mode="line_strip",
-        )
-        self.addItem(self._capsule_ring_front)
-        self.addItem(self._capsule_ring_back)
+        self._cylinder_len = config.CAPSULE_LENGTH_MM / 1000.0
+        r_cyl = config.CAPSULE_CYLINDER_RADIUS_MM / 1000.0
+        md = gl.MeshData.cylinder(rows=24, cols=48, radius=[r_cyl, r_cyl], length=self._cylinder_len)
+        self._capsule = gl.GLMeshItem(meshdata=md, smooth=True, color=(1.0, 0.55, 0.1, 0.95))
+        self.addItem(self._capsule)
 
         self._arrow = gl.GLLinePlotItem(
             pos=np.zeros((2, 3), dtype=np.float64),
@@ -153,24 +132,17 @@ class Viewer3D(GLViewWidget):
         x, y, z, pitch_deg, yaw_deg = float(p[0]), float(p[1]), float(p[2]), float(p[3]), float(p[4])
 
         d = config.heading_direction(pitch_deg, yaw_deg)
-        center = np.array([x, y, z], dtype=np.float64)
-        p_back = center - d * (self._capsule_len / 2.0)
-        p_front = center + d * (self._capsule_len / 2.0)
-        self._capsule_body.setData(pos=np.vstack([p_back, p_front]))
+        self._capsule.resetTransform()
+        z_axis = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        rot_axis = np.cross(z_axis, d)
+        rot_norm = float(np.linalg.norm(rot_axis))
+        if rot_norm > 1e-12:
+            rot_axis /= rot_norm
+            angle_deg = float(np.degrees(np.arccos(np.clip(np.dot(z_axis, d), -1.0, 1.0))))
+            self._capsule.rotate(angle_deg, float(rot_axis[0]), float(rot_axis[1]), float(rot_axis[2]))
+        self._capsule.translate(x, y, z)
 
-        ref = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-        if abs(np.dot(ref, d)) > 0.95:
-            ref = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-        u = np.cross(d, ref)
-        u /= np.linalg.norm(u)
-        v = np.cross(d, u)
-        v /= np.linalg.norm(v)
-        t = np.linspace(0.0, 2.0 * np.pi, 25)
-        ring_offset = (np.cos(t)[:, None] * u[None, :] + np.sin(t)[:, None] * v[None, :]) * self._capsule_radius
-        self._capsule_ring_front.setData(pos=p_front[None, :] + ring_offset)
-        self._capsule_ring_back.setData(pos=p_back[None, :] + ring_offset)
-
-        arrow_start = p_front
+        arrow_start = np.array([x, y, z], dtype=np.float64) + d * (self._cylinder_len / 2.0)
         arrow_tip = arrow_start + d * (config.ARROW_LENGTH_MM / 1000.0)
         self._arrow.setData(pos=np.vstack([arrow_start, arrow_tip]))
 
