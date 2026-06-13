@@ -40,7 +40,8 @@ def objective(trial):
     lambda_ori     = trial.suggest_float("lambda_ori",     0.01, 3.0,   log=True)
     delta_xyz      = trial.suggest_float("delta_xyz",      0.01, 1.5)
     lambda_pos     = trial.suggest_float("lambda_pos",     0.1,  3.0,   log=True)
-    lambda_physics = trial.suggest_float("lambda_physics", 1e-5, 1e-2,  log=True)
+    lambda_physics = trial.suggest_float("lambda_physics", 1e-3, 0.5,  log=True)
+    physics_delta  = trial.suggest_float("physics_delta",  0.01, 0.2)
     batch_size     = trial.suggest_categorical("batch_size", [256,512])
 
     scaler_file = os.path.join(CKPT_DIR, "scalers.pkl")
@@ -71,6 +72,7 @@ def objective(trial):
         delta_xyz      = delta_xyz,
         lambda_pos     = lambda_pos,
         lambda_physics = lambda_physics,
+        physics_delta  = physics_delta,
         calib_csv      = args.calib_csv,
         volt_scaler    = volt_scaler,
         label_scaler   = label_scaler,
