@@ -1,0 +1,20 @@
+<<<<<<< HEAD
+{
+  "device": "cpu",
+  "mean_ms": 6.121,
+  "std_ms": 5.2063,
+  "p95_ms": 9.8613,
+  "throughput_sps": 163.4,
+  "n_warmup": 50,
+  "n_samples": 500
+=======
+{
+  "device": "cpu",
+  "mean_ms": 6.121,
+  "std_ms": 5.2063,
+  "p95_ms": 9.8613,
+  "throughput_sps": 163.4,
+  "n_warmup": 50,
+  "n_samples": 500
+>>>>>>> 26039c1aa2b72ec359460f2b40ba0dec8b9fc667
+}

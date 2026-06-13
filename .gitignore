@@ -1,0 +1,23 @@
+# Các file Python tạm
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Các file dữ liệu và model
+*.csv
+*.onnx
+*.pt
+*.pkl
+*.json
+
+# Thư mục chứa model/ckpt
+test_ckpt/
+
+# Hệ điều hành và IDE
+.DS_Store
+.vscode/
+.idea/
+
+# File log và dữ liệu debug
+*.log
