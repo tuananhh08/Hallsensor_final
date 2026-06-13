@@ -199,9 +199,9 @@ class Model(nn.Module):
         self.head_xyz = nn.Linear(192, 3)
 
         self.head_mvec = nn.Sequential(
-            nn.Linear(192, 16),
+            nn.Linear(192, 32),
             nn.LeakyReLU(0.01, inplace=True),
-            nn.Linear(16, 3),
+            nn.Linear(32, 3),
             )
 
 
