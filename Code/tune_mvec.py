@@ -41,7 +41,7 @@ def objective(trial):
     delta_xyz      = trial.suggest_float("delta_xyz",      0.01, 1.5)
     lambda_pos     = trial.suggest_float("lambda_pos",     0.1,  3.0,   log=True)
     lambda_physics = trial.suggest_float("lambda_physics", 1e-3, 0.5,  log=True)
-    physics_delta  = trial.suggest_float("physics_delta",  0.01, 0.2)
+    physics_delta  = trial.suggest_float("physics_delta",  1e-3, 0.2,  log=True)
     batch_size     = trial.suggest_categorical("batch_size", [256,512])
 
     scaler_file = os.path.join(CKPT_DIR, "scalers.pkl")

@@ -159,7 +159,7 @@ class Stage1(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, out_dim: int = 6, drop_path_rate: float = 0.02):
+    def __init__(self, out_dim: int = 6, drop_path_rate: float = 0.015):
         super().__init__()
         self.out_dim = out_dim
 
