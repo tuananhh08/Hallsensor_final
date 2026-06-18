@@ -24,7 +24,7 @@ def get_config():
     p = argparse.ArgumentParser()
     p.add_argument("--voltage",        type=str,   default="grid_calib_data.csv")
     p.add_argument("--label",          type=str,   default="Grid_points_coordinates.csv")
-    p.add_argument("--calib_csv",      type=str,   default="Calibration_GRID_NEW_PARAM_results.csv")
+    p.add_argument("--calib_csv",      type=str,   default="Calibration_PARAM.csv")
     p.add_argument("--ckpt_dir",       type=str,   default="./ckpt_mvec")
     p.add_argument("--val_ratio",      type=float, default=0.2)
     p.add_argument("--batch_size",     type=int,   default=64)
