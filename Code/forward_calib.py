@@ -1,22 +1,23 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from pathlib import Path
 from scipy.optimize import least_squares
 
 # =============================================================================
 # FILE PATHS
 # =============================================================================
+BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6")
 
-SENSOR_POSITIONS_PATH = r"Hall_sensor_positions.csv"
+SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"
 
-ROBOT_POSE_PATH = r"Grid_points_coordinates.csv"
+ROBOT_POSE_PATH = BASE_DIR / "grid_add_random_coordinates.csv"
 
-VOLTAGE_DATA_PATH = r"Grid_data.csv"
+VOLTAGE_DATA_PATH = BASE_DIR / "grid_add_random_data.csv"
 
-OFFSET_FILE_PATH = r"Offset.csv"
+OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
 
-OUTPUT_PATH = r"Calibration_GRID_results.csv"
+OUTPUT_PATH = BASE_DIR / "Calibration_GRID_results.csv"
 
 # =============================================================================
 # CONSTANTS
@@ -144,12 +145,10 @@ def load_sensor_offsets(file_path):
 
     df = pd.read_csv(
         file_path,
-        header=None
+        header=0
     )
 
-    offsets = df.mean(
-        axis=1
-    ).values
+    offsets = df.iloc[:, 1].values
 
     print(
         f"Loaded offsets: {offsets.shape}"
@@ -345,8 +344,6 @@ def save_results(
         "gain_g":
             results[:, 4],
 
-        "rmse":
-            rmses
     })
 
     df.to_csv(
