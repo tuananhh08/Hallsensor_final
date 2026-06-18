@@ -8,12 +8,12 @@ from torch.utils.data import DataLoader
 
 # ================= CONFIG =================
 
-CKPT_DIR = "./ckpt_mvec"
+CKPT_DIR = "/content/drive/MyDrive/training_ckpt"
 
 p = argparse.ArgumentParser()
 p.add_argument("--VOLTAGE",    type=str, default="grid_calib_data.csv")
 p.add_argument("--LABEL",      type=str, default="Grid_points_coordinates.csv")
-p.add_argument("--calib_csv",  type=str, default="Calibration_GRID_NEW_PARAM_results.csv",
+p.add_argument("--calib_csv",  type=str, default="Calibration_PARAM.csv",
                help="Path to Calibration_GRID_NEW_PARAM_results.csv")
 p.add_argument("--ckpt_dir",   type=str, default=CKPT_DIR)
 p.add_argument("--n_trials",   type=int, default=50)
@@ -42,7 +42,7 @@ def objective(trial):
     lambda_pos     = trial.suggest_float("lambda_pos",     0.1,  3.0,   log=True)
     lambda_physics = trial.suggest_float("lambda_physics", 1e-3, 0.5,  log=True)
     physics_delta  = trial.suggest_float("physics_delta",  1e-3, 0.2,  log=True)
-    batch_size     = trial.suggest_categorical("batch_size", [256,512])
+    batch_size     = trial.suggest_categorical("batch_size", [32,64])
 
     scaler_file = os.path.join(CKPT_DIR, "scalers.pkl")
 
