@@ -1,8 +1,7 @@
 import optuna
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
-import json, os, argparse, pickle
+import json, os, argparse, pickle, shutil, time
 from train_mvec import build_datasets
 from model import Model
 from loss_mvec import HuberPoseLossMVec
@@ -12,36 +11,63 @@ from torch.utils.data import DataLoader
 # CONFIG
 # =============================================================================
 
-CKPT_DIR = "/content/drive/MyDrive/training_ckpt"
+CKPT_DIR = "/content/drive/MyDrive/training_ckpt"     # Thư mục Drive — chỉ dùng để đọc input và lưu kết quả cuối
+LOCAL_DIR = "/content/tune_hyperparams"                 # Thư mục local Colab — study.db sống ở đây trong suốt quá trình tune
 
 p = argparse.ArgumentParser()
 p.add_argument("--VOLTAGE",       type=str, default="grid_calib_data.csv")
 p.add_argument("--LABEL",         type=str, default="Grid_points_coordinates.csv")
 p.add_argument("--calib_csv",     type=str, default="Calibration_PARAM.csv")
-p.add_argument("--ckpt_dir",      type=str, default=CKPT_DIR)
-p.add_argument("--n_trials",      type=int, default=50)
-p.add_argument("--max_epochs",    type=int, default=80,     # [FIX-3] giảm từ 200 xuống 80 cho HPO
+p.add_argument("--ckpt_dir",      type=str, default=CKPT_DIR,
+               help="Thư mục Drive — chỉ dùng để đọc input và lưu kết quả cuối")
+p.add_argument("--local_dir",     type=str, default=LOCAL_DIR,
+               help="Thư mục local Colab — study.db sống ở đây trong suốt quá trình tune")
+p.add_argument("--n_trials",      type=int, default=40)
+p.add_argument("--max_epochs",    type=int, default=50,     
                help="Epochs per trial (dùng giá trị nhỏ hơn khi tuning)")
 p.add_argument("--warmup_epochs", type=int, default=5)
-p.add_argument("--num_workers",   type=int, default=2,      # [FIX-4] prefetch parallel
+p.add_argument("--num_workers",   type=int, default=2,      
                help="DataLoader num_workers")
 
 args = p.parse_args()
 
-CKPT_DIR = args.ckpt_dir
-DEVICE   = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-USE_AMP  = (DEVICE.type == "cuda")                           # [FIX-2] flag AMP toàn cục
+CKPT_DIR  = args.ckpt_dir     
+LOCAL_DIR = args.local_dir    
+DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+USE_AMP   = (DEVICE.type == "cuda")                         
 
 os.makedirs(CKPT_DIR, exist_ok=True)
-
-STUDY_DB   = os.path.join(CKPT_DIR, "study_mvec.db")
-STUDY_NAME = "pose_hpo_mvec"
+os.makedirs(LOCAL_DIR, exist_ok=True)
 
 
-# =============================================================================
-# [FIX-1 + FIX-5 + FIX-6]
-# Các phần cố định (dataset, scalers, calib) được chuẩn bị 1 lần duy nhất
-# trước khi Optuna chạy, rồi truyền vào objective() qua closure.
+STUDY_DB_LOCAL = os.path.join(LOCAL_DIR, "study_mvec.db")
+STUDY_DB_DRIVE = os.path.join(CKPT_DIR,  "study_mvec.db")   
+STUDY_NAME     = "pose_hpo_mvec"
+
+
+def _sync_study_db_from_drive():
+    """Nếu đã có study cũ trên Drive (từ lần chạy trước), copy về local để resume.
+    Chỉ 1 lần I/O qua Drive — không lặp lại trong quá trình tune."""
+    if os.path.exists(STUDY_DB_DRIVE) and not os.path.exists(STUDY_DB_LOCAL):
+        print(f"[Sync] Tìm thấy study cũ trên Drive -> copy về local để resume...")
+        t0 = time.time()
+        shutil.copy2(STUDY_DB_DRIVE, STUDY_DB_LOCAL)
+        print(f"[Sync]   Done in {time.time()-t0:.2f}s -> {STUDY_DB_LOCAL}")
+    elif os.path.exists(STUDY_DB_LOCAL):
+        print(f"[Sync] Đã có study.db local sẵn, dùng luôn: {STUDY_DB_LOCAL}")
+    else:
+        print(f"[Sync] Không có study cũ -> sẽ tạo study mới trên local.")
+
+
+def _sync_study_db_to_drive():
+    """Copy study.db (đầy đủ lịch sử mọi trial) từ local lên Drive sau khi
+    tune xong — đây là lần ghi DUY NHẤT qua Drive cho phần study.db."""
+    if os.path.exists(STUDY_DB_LOCAL):
+        print(f"\n[Sync] Backup study.db lên Drive...")
+        t0 = time.time()
+        shutil.copy2(STUDY_DB_LOCAL, STUDY_DB_DRIVE)
+        print(f"[Sync]   Done in {time.time()-t0:.2f}s -> {STUDY_DB_DRIVE}")
+
 # =============================================================================
 
 def prepare_shared_resources():
@@ -57,7 +83,7 @@ def prepare_shared_resources():
         seed=42,
     )
 
-    # [FIX-6] đọc scalers 1 lần
+    # đọc scalers 1 lần
     with open(scaler_file, "rb") as f:
         sc = pickle.load(f)
     volt_scaler  = sc["volt"]
@@ -85,7 +111,7 @@ def make_objective(train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler):
         batch_size     = trial.suggest_categorical("batch_size", [32, 64])
 
         pin = (DEVICE.type == "cuda")
-        # [FIX-4] pin_memory + num_workers
+        # pin_memory + num_workers
         train_loader = DataLoader(
             train_ds, batch_size=batch_size,
             shuffle=True, drop_last=True,
@@ -101,8 +127,8 @@ def make_objective(train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler):
 
         model = Model(out_dim=6).to(DEVICE)
 
-        # [FIX-5] calib_csv / scalers chỉ dùng để tạo buffers cố định;
-        #          chỉ lambda/delta thay đổi theo trial
+        # calib_csv / scalers chỉ dùng để tạo buffers cố định;
+        # chỉ lambda/delta thay đổi theo trial
         criterion = HuberPoseLossMVec(
             lambda_ori     = lambda_ori,
             delta_xyz      = delta_xyz,
@@ -129,8 +155,8 @@ def make_objective(train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler):
             schedulers=[warmup_sch, cosine_sch],
             milestones=[args.warmup_epochs])
 
-        # [FIX-2] AMP GradScaler
-        amp_scaler = GradScaler(enabled=USE_AMP)
+        # [FIX-2] AMP GradScaler (API mới torch.amp, không dùng torch.cuda.amp đã deprecated)
+        amp_scaler = torch.amp.GradScaler("cuda", enabled=USE_AMP)
 
         best_val   = float("inf")
         no_improve = 0
@@ -145,7 +171,7 @@ def make_objective(train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler):
                 optimizer.zero_grad(set_to_none=True)
 
                 # [FIX-2] autocast bao quanh forward pass
-                with autocast(enabled=USE_AMP):
+                with torch.amp.autocast("cuda", enabled=USE_AMP):
                     pred = model(X_b)
                     loss, _, _ = criterion(pred, Y_b, X_b=X_b)
 
@@ -168,7 +194,7 @@ def make_objective(train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler):
                 for X_b, Y_b in val_loader:
                     X_b = X_b.to(DEVICE, non_blocking=True)
                     Y_b = Y_b.to(DEVICE, non_blocking=True)
-                    with autocast(enabled=USE_AMP):         # [FIX-2]
+                    with torch.amp.autocast("cuda", enabled=USE_AMP):  # [FIX-2]
                         pred = model(X_b)
                         loss, _, _ = criterion(pred, Y_b, X_b=X_b)
                     if torch.isfinite(loss):
@@ -199,7 +225,13 @@ def make_objective(train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler):
 
 if __name__ == "__main__":
 
-    # [FIX-1 + FIX-6] chuẩn bị tài nguyên dùng chung — chỉ chạy 1 lần
+    t_start = time.time()
+
+    # Đồng bộ study.db từ Drive về local (nếu có) — I/O Drive 1 lần duy nhất
+    _sync_study_db_from_drive()
+
+    # chuẩn bị tài nguyên dùng chung — chỉ chạy 1 lần
+    # (đọc CSV + fit/load scaler vẫn qua Drive, nhưng chỉ 1 lần, không lặp theo trial)
     train_ds, val_ds, n_train, n_val, volt_scaler, label_scaler = \
         prepare_shared_resources()
 
@@ -212,12 +244,15 @@ if __name__ == "__main__":
         n_warmup_steps=10,
     )
     sampler = optuna.samplers.TPESampler(seed=42)
-    storage = f"sqlite:///{os.path.abspath(STUDY_DB)}"
+
+    # storage trỏ vào LOCAL disk — mọi trial.report()/commit trong
+    # suốt quá trình tune đều là I/O local (µs-ms), không qua Drive (network).
+    storage = f"sqlite:///{os.path.abspath(STUDY_DB_LOCAL)}"
 
     try:
         loaded_study = optuna.load_study(study_name=STUDY_NAME, storage=storage)
         print("\n" + "=" * 60)
-        print("FOUND PREVIOUS BEST HYPERPARAMETERS")
+        print("FOUND PREVIOUS BEST HYPERPARAMETERS (resumed from local/backup)")
         print("=" * 60)
         print(f"Best trial value (loss): {loaded_study.best_trial.value:.6f}")
         print("Best parameters:")
@@ -238,7 +273,12 @@ if __name__ == "__main__":
         load_if_exists=True,
     )
 
-    study.optimize(objective, n_trials=args.n_trials, show_progress_bar=True)
+    try:
+        study.optimize(objective, n_trials=args.n_trials, show_progress_bar=True)
+    finally:
+        # Backup study.db (toàn bộ lịch sử trial) lên Drive ngay cả khi
+        # bị dừng giữa chừng (Ctrl+C, mất kết nối, lỗi) — không mất tiến độ.
+        _sync_study_db_to_drive()
 
     best = study.best_trial
 
@@ -251,7 +291,12 @@ if __name__ == "__main__":
         print(f"  {k:20s}: {v}")
     print("=" * 60)
 
+    # Kết quả cuối — chỉ 1 lần ghi qua Drive
     result_path = os.path.join(CKPT_DIR, "best_hparams.json")
     with open(result_path, "w") as f:
         json.dump({"val_loss": best.value, "params": best.params}, f, indent=2)
     print(f"\nSaved best params to: {result_path}")
+
+    elapsed = time.time() - t_start
+    print(f"Total tuning time: {elapsed/60:.1f} min "
+          f"({elapsed/max(1,args.n_trials):.1f}s/trial avg)")
