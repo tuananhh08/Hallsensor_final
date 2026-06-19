@@ -18,11 +18,11 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 # ─────────────────────────────────────────────
 # CẤU HÌNH
 # ─────────────────────────────────────────────
-BASE_DIR = r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set/Coordinate"
+BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6"
 
 FILES = {
     "grid": {
-        "filename": "synthetic_grid.csv",
+        "filename": "grid_points_coordinates.csv",
         "color":    "#14b055",
         "marker":   "o",
         "size":     60,
@@ -38,16 +38,16 @@ FILES = {
         "alpha":    0.5,
         "label":    "Sensor Positions",
         "zorder":   2,
+    },
+    "Helix_points": {
+        "filename": "Helix_points_coordinates.csv",
+        "color":    "#3498db",
+        "marker":   "d",
+        "size":     35,
+        "alpha":    0.7,
+        "label":    "Helix Points",
+        "zorder":   4,
     }
-    # "grid_points": {
-    #     "filename": "Grid_points_coordinates.csv",
-    #     "color":    "#3498db",
-    #     "marker":   "d",
-    #     "size":     35,
-    #     "alpha":    0.7,
-    #     "label":    "Grid Points",
-    #     "zorder":   4,
-    # }
 }
 
 # ─────────────────────────────────────────────
