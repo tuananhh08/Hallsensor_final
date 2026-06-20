@@ -19,7 +19,6 @@ def load_calib_csv(path: str) -> dict:
         "sensor_pos" : df[["x", "y", "z"]].values.astype(np.float32),
     }
 
-
 # =============================================================================
 # Loss class
 # =============================================================================
@@ -60,7 +59,7 @@ class HuberPoseLossMVec(nn.Module):
                  delta_xyz:      float = 0.061,
                  lambda_pos:     float = 1.0,
                  lambda_physics: float = 1e-4,
-                 physics_delta:  float = 0.002,   # [T] — ~1 std Bz thực nghiệm
+                 physics_delta:  float = 0.002,   
                  calib_csv:      str   = None,
                  volt_scaler            = None,
                  label_scaler           = None,
