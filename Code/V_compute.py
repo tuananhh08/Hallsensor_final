@@ -176,7 +176,7 @@ print(f"Number of sensors : {len(sensor_pos)}")
 # ─── Load helix points ────────────────────────────────────────────────────────
 print("Loading helix coordinates...")
 
-coord_df = pd.read_csv(BASE_DIR / "Helix_points_coordinates.csv")
+coord_df = pd.read_csv(BASE_DIR / "grid_points_coordinates.csv")
 
 roi_xyz = coord_df[["x", "y", "z"]].values
 
@@ -210,7 +210,7 @@ column_names = [f"sensor {i}" for i in range(1, 65)]
 
 voltage_df = pd.DataFrame(V, columns=column_names)
 
-output_path = BASE_DIR / "Helix_computed_data.csv"
+output_path = BASE_DIR / "grid_computed_data.csv"
 
 voltage_df.to_csv(output_path, index=False)
 
