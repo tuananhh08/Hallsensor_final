@@ -12,42 +12,45 @@ import os
 import sys
 import pandas as pd
 import numpy as np
+from pathlib import Path
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 # ─────────────────────────────────────────────
 # CẤU HÌNH
 # ─────────────────────────────────────────────
-BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6"
+# BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6" #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
+
 
 FILES = {
-    "grid": {
-        "filename": "grid_points_coordinates.csv",
+    "After Calib": {
+        "filename": "Calibration_Physical.csv",
         "color":    "#14b055",
         "marker":   "o",
-        "size":     60,
+        "size":     10,
         "alpha":    0.9,
-        "label":    "Grid Points 1",
+        "label":    "After Calib",
         "zorder":   5,
     },
-    "Sensor_Positions": {
+    "Post Calib": {
         "filename": "Hall_sensor_positions.csv",
         "color":    "#EC7438",
         "marker":   "s",
-        "size":     35,
-        "alpha":    0.5,
-        "label":    "Sensor Positions",
+        "size":     10,
+        "alpha":    0.9,
+        "label":    "Post Calib",
         "zorder":   2,
-    },
-    "Helix_points": {
-        "filename": "Helix_points_coordinates.csv",
-        "color":    "#3498db",
-        "marker":   "d",
-        "size":     35,
-        "alpha":    0.7,
-        "label":    "Helix Points",
-        "zorder":   4,
-    }
+    # },
+    # "Helix_points": {
+    #     "filename": "Helix_points_coordinates.csv",
+    #     "color":    "#3498db",
+    #     "marker":   "d",
+    #     "size":     35,
+    #     "alpha":    0.7,
+    #     "label":    "Helix Points",
+    #     "zorder":   4,
+     }
 }
 
 # ─────────────────────────────────────────────

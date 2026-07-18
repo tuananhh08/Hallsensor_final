@@ -7,24 +7,40 @@ from scipy.optimize import least_squares
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6")
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6")
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"
 
-ROBOT_POSE_PATH = BASE_DIR / "grid_add_random_coordinates.csv"
+ROBOT_POSE_PATH = BASE_DIR / "grid_points_coordinates.csv"
 
-VOLTAGE_DATA_PATH = BASE_DIR / "grid_add_random_data.csv"
+VOLTAGE_DATA_PATH = BASE_DIR / "grid_data.csv"
 
 OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
 
-OUTPUT_REGION1 = BASE_DIR / "calibration_region1.csv"
-OUTPUT_REGION2 = BASE_DIR / "calibration_region2.csv"
-OUTPUT_REGION3 = BASE_DIR / "calibration_region3.csv"
+# ---- outputs for the 2-stage calibration framework ----
+PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical.csv"
+ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha.csv"
+
+
 # =============================================================================
 # CONSTANTS
 # =============================================================================
 
 MU0_OVER_4PI = 1e-7
+
+# ----  region boundaries  ----
+REGION1_H_MAX = 0.040   # Region 1: h < 0.040
+REGION2_H_MAX = 0.055   # Region 2: 0.040 <= h < 0.055 ; Region 3: h >= 0.055
+SAMPLES_PER_REGION = 70  # Stage 1: up to 70 points sampled per region
+
+# ----  Stage 1 regularization weights (physical priors)  ----
+# These penalize deviation from the design/nominal sensor pose so the
+# optimizer only moves a parameter away from its nominal value when the
+# voltage data actually demands it. Offset is intentionally NOT regularized.
+# NOTE: theta/phi (orientation) removed entirely -- sensor direction is
+# fixed to straight-up [0, 0, 1], so there is no orientation prior/lambda.
+LAMBDA_POS = 10    # position prior weight (x, y, z)   [1/m^2 scale]
+LAMBDA_GAIN = 7.5e-6   # gain prior weight                  [1/(V/T)^2 scale]
 
 # =============================================================================
 # DIPOLE MODEL
@@ -40,8 +56,7 @@ def dipole_field(r_vec, m_vec):
     mdotr = np.sum(m_vec * r_vec, axis=1, keepdims=True)
     
     B = MU0_OVER_4PI * (
-        3.0 * r_vec * mdotr / r5
-        - m_vec / r3
+        3.0 * r_vec * mdotr / r5 - m_vec / r3
     )
     
     return B
@@ -70,7 +85,7 @@ def load_robot_pose(file_path):
     for c in required_cols:
         if c not in df.columns:
             raise ValueError(f"Missing column: {c}")
-    
+
     positions = df[['x', 'y', 'z']].values
     m_world = df[['mx', 'my', 'mz']].values
     
@@ -112,40 +127,62 @@ def load_sensor_offsets(file_path):
 # RESIDUAL FUNCTION
 # =============================================================================
 
-def sensor_residuals(params, robot_positions, m_world, voltage_sensor):
+def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
+                      pos_prior=None, g0=7.5,
+                      lambda_pos=LAMBDA_POS, lambda_gain=LAMBDA_GAIN):
     """
-    Calculate residuals between measured and predicted voltages
-    params: [x, y, z, a, g, theta, phi]
-    theta: angle from z-axis (0 = straight up)
-    phi: azimuthal angle in xy-plane
+    Calculate residuals between measured and predicted voltages, PLUS
+    regularization residuals that pull (x,y,z,gain) toward their
+    nominal/physical prior values. Offset 'a' is left unregularized.
+
+    params: [x, y, z, a, g]
+    Sensor direction is FIXED to straight up [0, 0, 1] -- theta/phi are no
+    longer free parameters (sensors are assumed soldered perpendicular to
+    the PCB with negligible tilt).
+
+    pos_prior: (x0, y0, z0) nominal sensor position from
+               Hall_sensor_positions.csv (design position). If None, no
+               position regularization terms are appended (kept for safety;
+               in normal use this is always provided by the caller).
     """
-    x, y, z, a, g, theta, phi = params
-    
-    # Convert angles to direction vector
-    sensor_dir = np.array([
-        np.sin(theta) * np.cos(phi),
-        np.sin(theta) * np.sin(phi),
-        np.cos(theta)
-    ])
-    
+    x, y, z, a, g = params
+
+    # Fixed sensor direction (straight up, perpendicular to PCB)
+    sensor_dir = np.array([0.0, 0.0, 1.0])
+
     # Sensor position
     sensor_pos = np.array([x, y, z])
-    
+
     # Vector from robot to sensor
     r_vec = sensor_pos - robot_positions
-    
+
     # Calculate magnetic field at sensor position
     B = dipole_field(r_vec, m_world)
-    
+
     # Project magnetic field onto sensor direction
     B_proj = B @ sensor_dir
-    
+
     # Predicted voltage
     voltage_pred = a + g * B_proj
-    
-    # Residual
-    residual = voltage_sensor - voltage_pred
-    
+
+    # ---- Voltage residual (unchanged) ----
+    r_voltage = voltage_sensor - voltage_pred
+
+    # ---- Regularization residuals (physical priors) ----
+    # NOTE: concatenated onto the residual vector, NOT added to the scalar
+    # cost -- appending sqrt(lambda) * (param - prior) as extra residual
+    # entries is exactly equivalent to adding lambda * (param - prior)^2
+    # to the cost, keeping us fully inside least_squares()/'trf'.
+    if pos_prior is not None:
+        x0, y0, z0 = pos_prior
+        r_pos = np.sqrt(lambda_pos) * np.array([x - x0, y - y0, z - z0])
+    else:
+        r_pos = np.array([])
+
+    r_gain = np.sqrt(lambda_gain) * np.array([g - g0])
+
+    residual = np.concatenate([r_voltage, r_pos, r_gain])
+
     return residual
 
 
@@ -156,20 +193,21 @@ def sensor_residuals(params, robot_positions, m_world, voltage_sensor):
 def calibrate_single_sensor(
         sensor_index,
         sensor_pos_init,
-        offset_init,
         robot_positions,
         m_world,
-        voltage_sensor):
+        voltage_sensor,
+        offset_init=1.618):
     """
-    Calibrate a single sensor with direction angles
+    Calibrate a single sensor -- position + offset + gain only.
+    Sensor direction is fixed straight up (perpendicular to PCB);
+    theta/phi are no longer free parameters.
     """
     # ----------------------------------------------------
     # INITIAL VALUES
     # ----------------------------------------------------
     g0 = 7.5  # Initial gain (V/T)
-    theta0 = 0.0  # Initial theta (pointing straight up)
-    phi0 = 0.0    # Initial phi
-    
+    offset_init = 1.618         # a (offset)
+
     # ----------------------------------------------------
     # INITIAL PARAMETERS
     # ----------------------------------------------------
@@ -178,35 +216,27 @@ def calibrate_single_sensor(
         sensor_pos_init[1],  # y
         sensor_pos_init[2],  # z
         offset_init,         # a (offset)
-        g0,                  # g (gain)
-        theta0,              # theta
-        phi0                 # phi
+        g0                   # g (gain)
     ])
     
     # ----------------------------------------------------
     # BOUNDS
     # ----------------------------------------------------
-    pos_tol = 0.005  # 5mm tolerance for sensor position
-    theta_max = np.deg2rad(30)  # Max 30 degrees from vertical
-    
+    # pos_tol = 0.0015  # 1.5mm tolerance for sensor position
     lower = [
-        sensor_pos_init[0] - pos_tol,    # x min
-        sensor_pos_init[1] - pos_tol,    # y min
-        sensor_pos_init[2] - pos_tol,    # z min
-        offset_init - 0.005,             # a min (5mV)
-        -1e6,                            # g min
-        -theta_max,                      # theta min
-        -np.pi                           # phi min (full rotation)
+        -0.15,    # x min
+        0.4,    # y min
+        -0.2,    # z min
+        offset_init - 0.02,             # a min (15mV)
+        -9                               # g min
     ]
     
     upper = [
-        sensor_pos_init[0] + pos_tol,    # x max
-        sensor_pos_init[1] + pos_tol,    # y max
-        sensor_pos_init[2] + pos_tol,    # z max
-        offset_init + 0.005,             # a max (5mV)
-        1e6,                             # g max
-        theta_max,                       # theta max
-        np.pi                            # phi max (full rotation)
+        0.12,    # x max
+        1,    # y max
+        0,    # z max
+        offset_init + 0.02,             # a max (15mV)
+        9                                # g max
     ]
     
     # ----------------------------------------------------
@@ -221,8 +251,12 @@ def calibrate_single_sensor(
             m_world,
             voltage_sensor
         ),
+        kwargs=dict(
+            pos_prior=(sensor_pos_init[0], sensor_pos_init[1], sensor_pos_init[2]),
+            g0=g0,
+        ),
         method='trf',
-        max_nfev=500
+        max_nfev=250           
     )
     
     # ----------------------------------------------------
@@ -230,11 +264,12 @@ def calibrate_single_sensor(
     # ----------------------------------------------------
     params_opt = result.x
     
-    # Convert angles to direction vector for output
-    theta_opt, phi_opt = params_opt[5], params_opt[6]
-    nx = np.sin(theta_opt) * np.cos(phi_opt)
-    ny = np.sin(theta_opt) * np.sin(phi_opt)
-    nz = np.cos(theta_opt)
+    # Direction is fixed straight up -- theta/phi kept at 0 rad so the
+    # OUTPUT FORMAT (10 columns) stays identical to the previous script
+    # for downstream compatibility (save_results, save_physical_results,
+    # plot_direction_vectors, Stage 2 alpha).
+    theta_opt, phi_opt = 0.0, 0.0
+    nx, ny, nz = 0.0, 0.0, 1.0
     
     # Create extended parameter array for saving
     params_extended = np.array([
@@ -243,15 +278,19 @@ def calibrate_single_sensor(
         params_opt[2],  # z
         params_opt[3],  # a
         params_opt[4],  # g
-        nx, ny, nz,     # direction vector components
-        theta_opt,      # theta (radians)
-        phi_opt         # phi (radians)
+        nx, ny, nz,     # direction vector components (fixed straight up)
+        theta_opt,      # theta (radians, fixed = 0)
+        phi_opt         # phi (radians, fixed = 0)
     ])
     
     # ----------------------------------------------------
     # CALCULATE RMSE
+    # (result.fun = [voltage residuals, pos reg, gain reg];
+    #  RMSE must be computed from the voltage part only, so it still
+    #  means "V measured vs V predicted" and stays comparable to before)
     # ----------------------------------------------------
-    rmse = np.sqrt(np.mean(result.fun**2))
+    n_voltage = voltage_sensor.shape[0]
+    rmse = np.sqrt(np.mean(result.fun[:n_voltage]**2))
     
     angle_from_vertical = np.rad2deg(abs(theta_opt))
     print(f"Sensor {sensor_index+1:02d} | RMSE = {rmse:.6f} | "
@@ -282,7 +321,6 @@ def run_calibration(
         params, rmse = calibrate_single_sensor(
             sensor_index=i,
             sensor_pos_init=sensor_positions[i],
-            offset_init=offsets[i],
             robot_positions=robot_positions,
             m_world=m_world,
             voltage_sensor=voltage_data[:, i]
@@ -305,33 +343,127 @@ def select_region_samples(
         sensor_z,
         h_min,
         h_max=None,
-        max_samples=2000):
-    """
-    Select samples based on height range
-    """
+        max_samples=210,
+        return_indices=False):
+
     h = robot_positions[:, 2] - sensor_z
-    
-    if h_max is None:
-        region_idx = np.where(h >= h_min)[0]
-    else:
-        region_idx = np.where((h >= h_min) & (h < h_max))[0]
-    
+
+    lower_ok = np.ones_like(h, dtype=bool) if h_min is None else (h >= h_min)
+    upper_ok = np.ones_like(h, dtype=bool) if h_max is None else (h < h_max)
+    region_idx = np.where(lower_ok & upper_ok)[0]
+
     print(f"\nRegion [{h_min}, {h_max}] contains {len(region_idx)} samples")
-    
+
     if len(region_idx) > max_samples:
+        # NOTE: no random seed is set here, per the calibration spec.
         region_idx = np.random.choice(
             region_idx,
             size=max_samples,
             replace=False
         )
-    
+
     print(f"Using {len(region_idx)} samples")
-    
+
+    if return_indices:
+        return (
+            robot_positions[region_idx],
+            m_world[region_idx],
+            voltage_data[region_idx],
+            region_idx
+        )
+
     return (
         robot_positions[region_idx],
         m_world[region_idx],
         voltage_data[region_idx]
     )
+
+
+# =============================================================================
+# NEW: STAGE 1 - STRATIFIED CALIBRATION SET (fixed, reused in Stage 2)
+# =============================================================================
+
+def select_stage1_calibration_set(
+        robot_positions,
+        m_world,
+        voltage_data,
+        sensor_z_ref,
+        per_region=SAMPLES_PER_REGION):
+
+    rp1, mw1, vd1, idx1 = select_region_samples(
+        robot_positions, m_world, voltage_data, sensor_z_ref,
+        h_min=None, h_max=REGION1_H_MAX,
+        max_samples=per_region, return_indices=True
+    )
+    rp2, mw2, vd2, idx2 = select_region_samples(
+        robot_positions, m_world, voltage_data, sensor_z_ref,
+        h_min=REGION1_H_MAX, h_max=REGION2_H_MAX,
+        max_samples=per_region, return_indices=True
+    )
+    rp3, mw3, vd3, idx3 = select_region_samples(
+        robot_positions, m_world, voltage_data, sensor_z_ref,
+        h_min=REGION2_H_MAX, h_max=None,
+        max_samples=per_region, return_indices=True
+    )
+
+    calib_indices = np.concatenate([idx1, idx2, idx3])
+    rp_calib = np.concatenate([rp1, rp2, rp3], axis=0)
+    mw_calib = np.concatenate([mw1, mw2, mw3], axis=0)
+    vd_calib = np.concatenate([vd1, vd2, vd3], axis=0)
+
+    print(f"\n[Stage 1] Combined calibration set: {len(calib_indices)} "
+          f"points (Region1={len(idx1)}, Region2={len(idx2)}, "
+          f"Region3={len(idx3)})")
+
+    return calib_indices, rp_calib, mw_calib, vd_calib
+
+
+# =============================================================================
+# NEW: STAGE 2 - CLOSED-FORM ALPHA PER REGION
+# =============================================================================
+
+def calibrate_alpha_by_region(physical_results, rp_calib, mw_calib, vd_calib):
+
+    n_samples = rp_calib.shape[0]
+    n_sensors = physical_results.shape[0]
+
+    sensor_pos = physical_results[:, 0:3]      # (n_sensors, 3): x, y, z
+    a = physical_results[:, 3]                  # (n_sensors,)  offset
+    g = physical_results[:, 4]                  # (n_sensors,)  gain
+    sensor_dir = physical_results[:, 5:8]       # (n_sensors, 3): nx, ny, nz
+
+    # h[i, s] = z_capsule_i - z_sensor_calibrated_s  (uses Stage-1 result)
+    z_calibrated = sensor_pos[:, 2]
+    h = rp_calib[:, 2][:, None] - z_calibrated[None, :]   # (n_samples, n_sensors)
+
+    # Raw dipole projection B_proj[i, s] using the FROZEN calibrated pose
+    # (position + direction) of each sensor -- gain/offset are NOT
+    # reapplied here, they're multiplied in separately below.
+    B_proj = np.zeros((n_samples, n_sensors))
+    for s in range(n_sensors):
+        r_vec = sensor_pos[s] - rp_calib               # (n_samples, 3)
+        B = dipole_field(r_vec, mw_calib)               # (n_samples, 3)
+        B_proj[:, s] = B @ sensor_dir[s]
+
+    gB = g[None, :] * B_proj                            # (n_samples, n_sensors)
+    v_minus_a = vd_calib - a[None, :]                    # V_measured - a
+
+    region_masks = {
+        1: h < REGION1_H_MAX,
+        2: (h >= REGION1_H_MAX) & (h < REGION2_H_MAX),
+        3: h >= REGION2_H_MAX
+    }
+
+    alphas = {}
+    for region, mask in region_masks.items():
+        numerator = np.sum(gB[mask] * v_minus_a[mask])
+        denominator = np.sum(gB[mask] ** 2)
+        alpha = numerator / denominator if denominator > 0 else np.nan
+        print(f"Region {region}: alpha = {alpha:.6f} "
+              f"(from {np.sum(mask)} sample-sensor pairs)")
+        alphas[region] = alpha
+
+    return alphas
 
 
 # =============================================================================
@@ -363,6 +495,43 @@ def save_results(results, rmses, output_file):
 
 
 # =============================================================================
+# NEW: SAVE STAGE 1 / STAGE 2 RESULTS (required output files)
+# =============================================================================
+
+def save_physical_results(results, output_file):
+    """
+    Save Stage 1 frozen physical parameters to Calibration_Physical.csv
+    with columns: sensor_index, x, y, z, offset, gain, theta, phi
+    """
+    df = pd.DataFrame({
+        "sensor_index": np.arange(len(results)),
+        "x": results[:, 0],
+        "y": results[:, 1],
+        "z": results[:, 2],
+        "offset": results[:, 3],
+        "gain": results[:, 4],
+        "theta": results[:, 8],
+        "phi": results[:, 9],
+    })
+    df.to_csv(output_file, index=False)
+    print(f"\nSaved: {output_file}")
+
+
+def save_alpha_results(alphas, output_file):
+    """
+    Save Stage 2 region correction coefficients to Calibration_Alpha.csv
+    with exactly 3 rows: Region 1, Region 2, Region 3.
+    """
+    regions_sorted = sorted(alphas.keys())
+    df = pd.DataFrame({
+        "Region": [f"Region {r}" for r in regions_sorted],
+        "Alpha": [alphas[r] for r in regions_sorted],
+    })
+    df.to_csv(output_file, index=False)
+    print(f"Saved: {output_file}")
+
+
+# =============================================================================
 # PLOT RMSE
 # =============================================================================
 
@@ -381,43 +550,43 @@ def plot_rmse(rmses):
 # PLOT DIRECTION VECTORS
 # =============================================================================
 
-def plot_direction_vectors(results):
-    """Plot direction vectors of all sensors"""
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+# def plot_direction_vectors(results):
+#     """Plot direction vectors of all sensors"""
+#     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
     
-    sensor_ids = np.arange(len(results))
+#     sensor_ids = np.arange(len(results))
     
-    # Subplot 1: Direction components
-    ax1 = axes[0]
-    ax1.plot(sensor_ids, results[:, 5], 'r.-', label='nx', markersize=8)
-    ax1.plot(sensor_ids, results[:, 6], 'g.-', label='ny', markersize=8)
-    ax1.plot(sensor_ids, results[:, 7], 'b.-', label='nz', markersize=8)
-    ax1.set_xlabel("Sensor Index")
-    ax1.set_ylabel("Direction Component")
-    ax1.set_title("Sensor Direction Components")
-    ax1.legend()
-    ax1.grid(True)
+#     # Subplot 1: Direction components
+#     ax1 = axes[0]
+#     ax1.plot(sensor_ids, results[:, 5], 'r.-', label='nx', markersize=8)
+#     ax1.plot(sensor_ids, results[:, 6], 'g.-', label='ny', markersize=8)
+#     ax1.plot(sensor_ids, results[:, 7], 'b.-', label='nz', markersize=8)
+#     ax1.set_xlabel("Sensor Index")
+#     ax1.set_ylabel("Direction Component")
+#     ax1.set_title("Sensor Direction Components")
+#     ax1.legend()
+#     ax1.grid(True)
     
-    # Subplot 2: Angular deviation from vertical
-    ax2 = axes[1]
-    angle_from_vertical = np.rad2deg(np.abs(results[:, 8]))
-    ax2.bar(sensor_ids, angle_from_vertical)
-    ax2.set_xlabel("Sensor Index")
-    ax2.set_ylabel("Angle (degrees)")
-    ax2.set_title("Angular Deviation from Z-axis")
-    ax2.grid(True)
+#     # Subplot 2: Angular deviation from vertical
+#     ax2 = axes[1]
+#     angle_from_vertical = np.rad2deg(np.abs(results[:, 8]))
+#     ax2.bar(sensor_ids, angle_from_vertical)
+#     ax2.set_xlabel("Sensor Index")
+#     ax2.set_ylabel("Angle (degrees)")
+#     ax2.set_title("Angular Deviation from Z-axis")
+#     ax2.grid(True)
     
-    # Subplot 3: Azimuthal angle
-    ax3 = axes[2]
-    phi_deg = np.rad2deg(results[:, 9])
-    ax3.bar(sensor_ids, phi_deg)
-    ax3.set_xlabel("Sensor Index")
-    ax3.set_ylabel("Phi (degrees)")
-    ax3.set_title("Azimuthal Angle (XY-plane)")
-    ax3.grid(True)
+#     # Subplot 3: Azimuthal angle
+#     ax3 = axes[2]
+#     phi_deg = np.rad2deg(results[:, 9])
+#     ax3.bar(sensor_ids, phi_deg)
+#     ax3.set_xlabel("Sensor Index")
+#     ax3.set_ylabel("Phi (degrees)")
+#     ax3.set_title("Azimuthal Angle (XY-plane)")
+#     ax3.grid(True)
     
-    plt.tight_layout()
-    plt.show()
+#     plt.tight_layout()
+#     plt.show()
 
 
 # =============================================================================
@@ -425,72 +594,264 @@ def plot_direction_vectors(results):
 # =============================================================================
 
 def main():
-    """Main execution function"""
-    
+    """Main execution function -- 2-stage calibration framework"""
+
     # Load data
     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
     offsets = load_sensor_offsets(OFFSET_FILE_PATH)
-    
+
     # Ensure consistent number of samples
     n_samples = min(len(robot_positions), len(voltage_data))
     robot_positions = robot_positions[:n_samples]
     m_world = m_world[:n_samples]
     voltage_data = voltage_data[:n_samples]
-    
-    # Sensor reference height
-    sensor_z = sensor_positions[0, 2]
-    print(f"\nSensor reference z = {sensor_z:.6f} m")
-    
-    # Define regions
-    regions = [
-        ("REGION 1", 0.025, 0.045, OUTPUT_REGION1),
-        ("REGION 2", 0.045, 0.065, OUTPUT_REGION2),
-        ("REGION 3", 0.065, None, OUTPUT_REGION3)
-    ]
-    
-    # Process each region
-    for region_name, h_min, h_max, output_file in regions:
-        print("\n===================================")
-        print(region_name)
-        print("===================================")
-        
-        # Select samples for this region
-        rp, mw, vd = select_region_samples(
-            robot_positions, m_world, voltage_data,
-            sensor_z, h_min, h_max, max_samples=2000
-        )
-        
-        if len(rp) < 20:
-            print(f"{region_name}: too few samples ({len(rp)}), skipping...")
-            continue
-        
-        # Run calibration
-        results, rmses = run_calibration(
-            sensor_positions, offsets, rp, mw, vd
-        )
-        
-        # Print statistics
-        print("\n========================")
-        print(f"Mean RMSE = {np.mean(rmses):.6f}")
-        print(f"Max RMSE  = {np.max(rmses):.6f}")
-        print(f"Min RMSE  = {np.min(rmses):.6f}")
-        print("========================")
-        
-        # Save results
-        save_results(results, rmses, output_file)
-        
-        # Plot RMSE
-        plot_rmse(rmses)
-        
-        # Plot direction vectors
-        plot_direction_vectors(results)
-    
+
+    # ------------------------------------------------------------------
+    # NEW: Sensor reference height for Stage 1 region assignment.
+    # Must come from the ORIGINAL (uncalibrated) sensor positions file.
+    # ------------------------------------------------------------------
+    sensor_z_initial_ref = sensor_positions[:, 2].mean()
+    print(f"\nSensor reference z (initial, for Stage 1) = "
+          f"{sensor_z_initial_ref:.6f} m")
+
+    # ==================================================================
+    # STAGE 1a: Stratified, fixed calibration set (<=150 points)
+    # ==================================================================
     print("\n===================================")
-    print("ALL REGIONS FINISHED")
+    print("STAGE 1: SAMPLE SELECTION")
+    print("===================================")
+    calib_indices, rp_calib, mw_calib, vd_calib = select_stage1_calibration_set(
+        robot_positions, m_world, voltage_data, sensor_z_initial_ref,
+        per_region=SAMPLES_PER_REGION
+    )
+    # calib_indices is frozen here and reused as-is in Stage 2 below --
+    # no re-sampling happens after this point.
+
+    # ==================================================================
+    # STAGE 1b: Per-sensor physical parameter calibration
+    # (unchanged residual function, dipole model, initial values, bounds)
+    # ==================================================================
+    print("\n===================================")
+    print("STAGE 1: PHYSICAL PARAMETER FIT")
+    print("===================================")
+    results, rmses = run_calibration(
+        sensor_positions, offsets, rp_calib, mw_calib, vd_calib
+    )
+
+    print("\n========================")
+    print(f"Mean RMSE = {np.mean(rmses):.6f}")
+    print(f"Max RMSE  = {np.max(rmses):.6f}")
+    print(f"Min RMSE  = {np.min(rmses):.6f}")
+    print("========================")
+
+    # Save Stage 1 physical parameters (frozen going into Stage 2)
+    save_physical_results(results, PHYSICAL_OUTPUT_PATH)
+
+    # Plots
+    plot_rmse(rmses)
+    # plot_direction_vectors(results)
+
+    # ==================================================================
+    # STAGE 2: Closed-form alpha per region (physical params frozen)
+    # ==================================================================
+    print("\n===================================")
+    print("STAGE 2: ALPHA CORRECTION (closed-form)")
+    print("===================================")
+    alphas = calibrate_alpha_by_region(results, rp_calib, mw_calib, vd_calib)
+    save_alpha_results(alphas, ALPHA_OUTPUT_PATH)
+
+    print("\n===================================")
+    print("ALL STAGES FINISHED")
     print("===================================")
 
 
 if __name__ == "__main__":
     main()
+    
+# """
+# Sweep lambda_pos va lambda_gain quanh vung uoc luong co co so, ve L-curve
+# (RMSE vs do lech tham so khoi prior) de chon lambda can bang.
+
+# CACH DUNG: dan doan code nay vao CUOI file calib_region_based.py (ban da
+# co san cac ham dipole_field, sensor_residuals, calibrate_single_sensor,
+# select_stage1_calibration_set, load_sensor_positions, load_robot_pose,
+# load_voltage_data, v.v. trong file goc). Script nay KHONG doi thuat toan
+# least_squares/'trf', chi goi lai calibrate_single_sensor() nhieu lan voi
+# cac gia tri lambda khac nhau.
+
+# Diem khoi dau duoc uoc luong tu cong thuc:
+#     lambda = (RMSE_v_no_reg / sigma)^2
+# voi RMSE_v_no_reg lay tu log ban da chay (0.000383 V), va sigma la do lech
+# "chap nhan duoc" ban tu chon (o day: sigma_pos=0.5mm, sigma_gain=1.0 V/T).
+# Day chi la DIEM KHOI DAU -- sweep xung quanh no de tim diem can bang that su.
+# """
+
+# import numpy as np
+# import matplotlib.pyplot as plt
+
+# # =============================================================================
+# # CAU HINH SWEEP
+# # =============================================================================
+# RMSE_V_NO_REG = 0.000383  # tu log khong-regularize cua ban
+
+# # Diem khoi dau uoc luong (KHONG phai gia tri cuoi cung)
+# LAMBDA_POS_GUESS = (RMSE_V_NO_REG / 0.0005) ** 2   # sigma_pos = 0.5 mm
+# LAMBDA_GAIN_GUESS = (RMSE_V_NO_REG / 1.0) ** 2      # sigma_gain = 1.0 V/T
+
+# # Sweep tu 1/100x den 100x quanh diem khoi dau, log-spaced, 9 diem
+# N_POINTS = 9
+# lambda_pos_grid = np.geomspace(LAMBDA_POS_GUESS / 100, LAMBDA_POS_GUESS * 100, N_POINTS)
+# lambda_gain_grid = np.geomspace(LAMBDA_GAIN_GUESS / 100, LAMBDA_GAIN_GUESS * 100, N_POINTS)
+
+# # Sensor dai dien de sweep nhanh (thay vi chay het 64 sensor cho moi lambda).
+# # Nen chon vai sensor o cac vi tri khac nhau (giua/canh mang) de dai dien.
+# SENSOR_SAMPLE_IDX = [0, 15, 31, 47, 63]  # 5 sensor rai deu tren 64 sensor
+
+
+# def run_sweep_1d(param_name, lambda_grid, sensor_positions, robot_positions,
+#                   m_world, voltage_data, sensor_z_ref):
+#     """
+#     Sweep 1 chieu: giu lambda con lai = 0, chi thay doi lambda cua param_name
+#     ('pos' hoac 'gain'). Tra ve (rmse_list, deviation_list).
+
+#     Goi least_squares() TRUC TIEP (khong qua calibrate_single_sensor) vi
+#     lambda_pos/lambda_gain trong sensor_residuals la default-argument, bi
+#     "dong bang" luc dinh nghia ham -- doi bien global sau do KHONG co tac
+#     dung. Truyen tuong minh qua kwargs moi dam bao dung gia tri lambda.
+#     """
+#     rmse_list = []
+#     deviation_list = []  # do lech tuong doi TB khoi prior (chuan hoa theo bound)
+
+#     calib_indices, rp_calib, mw_calib, vd_calib = select_stage1_calibration_set(
+#         robot_positions, m_world, voltage_data, sensor_z_ref
+#     )
+
+#     g0 = 7.5
+#     pos_tol = 0.0015
+
+#     for lam in lambda_grid:
+#         lambda_pos = lam if param_name == "pos" else 0.0
+#         lambda_gain = lam if param_name == "gain" else 0.0
+
+#         rmses_this_lambda = []
+#         deviations_this_lambda = []
+
+#         for s in SENSOR_SAMPLE_IDX:
+#             sensor_pos_init = sensor_positions[s]
+
+#             x0 = np.array([
+#                 sensor_pos_init[0], sensor_pos_init[1], sensor_pos_init[2],
+#                 1.618,  # offset_init
+#                 g0
+#             ])
+#             lower = [
+#                 sensor_pos_init[0] - pos_tol, sensor_pos_init[1] - pos_tol,
+#                 sensor_pos_init[2] - pos_tol, 1.618 - 0.015, 4
+#             ]
+#             upper = [
+#                 sensor_pos_init[0] + pos_tol, sensor_pos_init[1] + pos_tol,
+#                 sensor_pos_init[2] + pos_tol, 1.618 + 0.015, 9
+#             ]
+
+#             result = least_squares(
+#                 sensor_residuals,
+#                 x0,
+#                 bounds=(lower, upper),
+#                 args=(rp_calib, mw_calib, vd_calib[:, s]),
+#                 kwargs=dict(
+#                     pos_prior=tuple(sensor_pos_init),
+#                     g0=g0,
+#                     lambda_pos=lambda_pos,
+#                     lambda_gain=lambda_gain,
+#                 ),
+#                 method="trf",
+#                 max_nfev=250
+#             )
+
+#             n_voltage = vd_calib.shape[0]
+#             rmse = np.sqrt(np.mean(result.fun[:n_voltage] ** 2))
+#             rmses_this_lambda.append(rmse)
+
+#             if param_name == "pos":
+#                 dev = np.linalg.norm(result.x[0:3] - sensor_pos_init) / pos_tol
+#             else:  # gain
+#                 dev = abs(result.x[4] - g0) / 5.0  # chuan hoa theo bien do bound gain [4,9]
+
+#             deviations_this_lambda.append(dev)
+
+#         rmse_list.append(np.mean(rmses_this_lambda))
+#         deviation_list.append(np.mean(deviations_this_lambda))
+
+#         print(f"  lambda_{param_name} = {lam:.3e} | "
+#               f"mean RMSE = {np.mean(rmses_this_lambda):.6f} | "
+#               f"mean |dev|/bound = {np.mean(deviations_this_lambda):.4f}")
+
+#     return rmse_list, deviation_list
+
+
+# def plot_lcurve(lambda_grid, rmse_list, deviation_list, param_name, guess_value):
+#     fig, ax1 = plt.subplots(figsize=(7, 5))
+
+#     color1 = "tab:blue"
+#     ax1.set_xlabel(f"lambda_{param_name}")
+#     ax1.set_ylabel("Mean RMSE (V)", color=color1)
+#     ax1.plot(lambda_grid, rmse_list, "o-", color=color1, label="RMSE")
+#     ax1.set_xscale("log")
+#     ax1.tick_params(axis="y", labelcolor=color1)
+
+#     ax2 = ax1.twinx()
+#     color2 = "tab:red"
+#     ax2.set_ylabel("Mean |deviation| / bound", color=color2)
+#     ax2.plot(lambda_grid, deviation_list, "s--", color=color2, label="Deviation")
+#     ax2.tick_params(axis="y", labelcolor=color2)
+
+#     ax1.axvline(guess_value, color="gray", linestyle=":", alpha=0.7,
+#                 label=f"initial guess = {guess_value:.2e}")
+
+#     fig.suptitle(f"L-curve: RMSE vs Deviation ({param_name})")
+#     fig.tight_layout()
+#     output_path = BASE_DIR / f"lcurve_{param_name}.png"
+#     fig.savefig(output_path, dpi=120)
+#     plt.close(fig)
+#     print(f"  -> Da luu: {output_path}")
+
+
+# def main_sweep():
+#     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
+#     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
+#     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
+
+#     # QUAN TRONG: sensor_z_ref phai la 1 gia tri SCALAR (trung binh z cua
+#     # tat ca sensor), giong het cach goc dung trong run_calibration():
+#     #   sensor_z_initial_ref = sensor_positions[:, 2].mean()
+#     # KHONG duoc truyen mang 64 phan tu vao day.
+#     sensor_z_ref = sensor_positions[:, 2].mean()
+
+#     print("=" * 60)
+#     print(f"Diem khoi dau uoc luong: lambda_pos = {LAMBDA_POS_GUESS:.3e}, "
+#           f"lambda_gain = {LAMBDA_GAIN_GUESS:.3e}")
+#     print("=" * 60)
+
+#     print("\n--- SWEEP lambda_pos (lambda_gain = 0) ---")
+#     rmse_pos, dev_pos = run_sweep_1d(
+#         "pos", lambda_pos_grid, sensor_positions, robot_positions,
+#         m_world, voltage_data, sensor_z_ref
+#     )
+#     plot_lcurve(lambda_pos_grid, rmse_pos, dev_pos, "pos", LAMBDA_POS_GUESS)
+
+#     print("\n--- SWEEP lambda_gain (lambda_pos = 0) ---")
+#     rmse_gain, dev_gain = run_sweep_1d(
+#         "gain", lambda_gain_grid, sensor_positions, robot_positions,
+#         m_world, voltage_data, sensor_z_ref
+#     )
+#     plot_lcurve(lambda_gain_grid, rmse_gain, dev_gain, "gain", LAMBDA_GAIN_GUESS)
+
+#     print("\nDa luu 2 anh L-curve vao thu muc BASE_DIR (xem duong dan o tren)")
+#     print("Chon lambda tai 'diem khuyu' (elbow): noi RMSE bat dau tang nhanh")
+#     print("nhung deviation da giam ve gan 0 -- do la vung can bang tot nhat.")
+
+
+# if __name__ == "__main__":
+#     main_sweep()

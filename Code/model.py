@@ -133,7 +133,7 @@ class DualPool(nn.Module):
         avg = self.avg_pool(x).flatten(1)  
         mx  = self.max_pool(x).flatten(1)  
         return torch.cat([avg, mx], dim=1)
-    
+
 class Stage1(nn.Module):
     def __init__(self, out_ch: int = 8):
         super().__init__()
