@@ -1,3 +1,5 @@
+"Vẽ đồ thị so sánh điện áp đo được và điện áp tính toán từ mô hình dipole cho từng sensor. Tính toán RMSE cho từng sensor và tổng thể."
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
