@@ -14,8 +14,8 @@ BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6"
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical.csv"
 ALPHA_PATH = BASE_DIR / "Calibration_Alpha.csv"
-VOLTAGE_PATH = BASE_DIR / "Helix_data.csv"
-COORDS_PATH = BASE_DIR / "Helix_points_coordinates.csv"
+VOLTAGE_PATH = BASE_DIR / "grid_data.csv"
+COORDS_PATH = BASE_DIR / "grid_points_coordinates.csv"
 
 OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -142,7 +142,8 @@ def compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alphas):
 
     alpha_sample = alpha_for_h(h, alphas)         # (N,)
 
-    v_pred = a + alpha_sample * g * B_proj
+    v_pred = a + alpha_sample * g * B_proj 
+    
     return v_pred
 
 

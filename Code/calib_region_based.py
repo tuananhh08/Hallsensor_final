@@ -39,8 +39,8 @@ SAMPLES_PER_REGION = 80  # Stage 1: up to 80 points sampled per region
 # voltage data actually demands it. Offset is intentionally NOT regularized.
 # NOTE: theta/phi (orientation) removed entirely -- sensor direction is
 # fixed to straight-up [0, 0, 1], so there is no orientation prior/lambda.
-LAMBDA_POS = 550   # position prior weight (x, y, z)   [1/m^2 scale]
-LAMBDA_GAIN = 8e-4   # gain prior weight                  [1/(V/T)^2 scale]
+LAMBDA_POS = 2000   # position prior weight (x, y, z)   [1/m^2 scale]
+LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
 
 # =============================================================================
 # DIPOLE MODEL
@@ -226,7 +226,7 @@ def calibrate_single_sensor(
     # ----------------------------------------------------
     # BOUNDS
     # ----------------------------------------------------
-    pos_tol = 0.0013  # 1.3mm tolerance for sensor position
+    pos_tol = 0.0013  # 1.5mm tolerance for sensor position
     lower = [
         sensor_pos_init[0] - pos_tol,    # x min
         sensor_pos_init[1] - pos_tol,    # y min
@@ -676,191 +676,191 @@ if __name__ == "__main__":
     
     
     
-# # # """
-# # # Sweep lambda_pos va lambda_gain quanh vung uoc luong co co so, ve L-curve
-# # # (RMSE vs do lech tham so khoi prior) de chon lambda can bang.
+# """
+# Sweep lambda_pos va lambda_gain quanh vung uoc luong co co so, ve L-curve
+# (RMSE vs do lech tham so khoi prior) de chon lambda can bang.
 
-# # # CACH DUNG: dan doan code nay vao CUOI file calib_region_based.py (ban da
-# # # co san cac ham dipole_field, sensor_residuals, calibrate_single_sensor,
-# # # select_stage1_calibration_set, load_sensor_positions, load_robot_pose,
-# # # load_voltage_data, v.v. trong file goc). Script nay KHONG doi thuat toan
-# # # least_squares/'trf', chi goi lai calibrate_single_sensor() nhieu lan voi
-# # # cac gia tri lambda khac nhau.
+# CACH DUNG: dan doan code nay vao CUOI file calib_region_based.py (ban da
+# co san cac ham dipole_field, sensor_residuals, calibrate_single_sensor,
+# select_stage1_calibration_set, load_sensor_positions, load_robot_pose,
+# load_voltage_data, v.v. trong file goc). Script nay KHONG doi thuat toan
+# least_squares/'trf', chi goi lai calibrate_single_sensor() nhieu lan voi
+# cac gia tri lambda khac nhau.
 
-# # # Diem khoi dau duoc uoc luong tu cong thuc:
-# # #     lambda = (RMSE_v_no_reg / sigma)^2
-# # # voi RMSE_v_no_reg lay tu log ban da chay (0.000383 V), va sigma la do lech
-# # # "chap nhan duoc" ban tu chon (o day: sigma_pos=0.5mm, sigma_gain=1.0 V/T).
-# # # Day chi la DIEM KHOI DAU -- sweep xung quanh no de tim diem can bang that su.
-# # # """
+# Diem khoi dau duoc uoc luong tu cong thuc:
+#     lambda = (RMSE_v_no_reg / sigma)^2
+# voi RMSE_v_no_reg lay tu log ban da chay (0.0026 V), va sigma la do lech
+# "chap nhan duoc" ban tu chon (o day: sigma_pos=0.5mm, sigma_gain=1.0 V/T).
+# Day chi la DIEM KHOI DAU -- sweep xung quanh no de tim diem can bang that su.
+# """
 
-# # import numpy as np
-# # import matplotlib.pyplot as plt
+# import numpy as np
+# import matplotlib.pyplot as plt
 
-# # # =============================================================================
-# # # CAU HINH SWEEP
-# # # =============================================================================
-# # RMSE_V_NO_REG = 0.000383  # tu log khong-regularize cua ban
+# # =============================================================================
+# # CAU HINH SWEEP
+# # =============================================================================
+# RMSE_V_NO_REG = 0.0026  # tu log khong-regularize cua ban
 
-# # # Diem khoi dau uoc luong (KHONG phai gia tri cuoi cung)
-# # LAMBDA_POS_GUESS = (RMSE_V_NO_REG / 0.0005) ** 2   # sigma_pos = 0.5 mm
-# # LAMBDA_GAIN_GUESS = (RMSE_V_NO_REG / 1.0) ** 2      # sigma_gain = 1.0 V/T
+# # Diem khoi dau uoc luong (KHONG phai gia tri cuoi cung)
+# LAMBDA_POS_GUESS = (RMSE_V_NO_REG / 0.0005) ** 2   # sigma_pos = 0.5 mm
+# LAMBDA_GAIN_GUESS = (RMSE_V_NO_REG / 1.0) ** 2      # sigma_gain = 1.0 V/T
 
-# # # Sweep tu 1/100x den 100x quanh diem khoi dau, log-spaced, 9 diem
-# # N_POINTS = 9
-# # lambda_pos_grid = np.geomspace(LAMBDA_POS_GUESS / 100, LAMBDA_POS_GUESS * 100, N_POINTS)
-# # lambda_gain_grid = np.geomspace(LAMBDA_GAIN_GUESS / 100, LAMBDA_GAIN_GUESS * 100, N_POINTS)
+# # Sweep tu 1/100x den 100x quanh diem khoi dau, log-spaced, 9 diem
+# N_POINTS = 9
+# lambda_pos_grid = np.geomspace(LAMBDA_POS_GUESS / 100, LAMBDA_POS_GUESS * 100, N_POINTS)
+# lambda_gain_grid = np.geomspace(LAMBDA_GAIN_GUESS / 100, LAMBDA_GAIN_GUESS * 100, N_POINTS)
 
-# # # Sensor dai dien de sweep nhanh (thay vi chay het 64 sensor cho moi lambda).
-# # # Nen chon vai sensor o cac vi tri khac nhau (giua/canh mang) de dai dien.
-# # SENSOR_SAMPLE_IDX = [0, 15, 31, 47, 63]  # 5 sensor rai deu tren 64 sensor
-
-
-# # def run_sweep_1d(param_name, lambda_grid, sensor_positions, robot_positions,
-# #                   m_world, voltage_data, sensor_z_ref):
-# #     """
-# #     Sweep 1 chieu: giu lambda con lai = 0, chi thay doi lambda cua param_name
-# #     ('pos' hoac 'gain'). Tra ve (rmse_list, deviation_list).
-
-# #     Goi least_squares() TRUC TIEP (khong qua calibrate_single_sensor) vi
-# #     lambda_pos/lambda_gain trong sensor_residuals la default-argument, bi
-# #     "dong bang" luc dinh nghia ham -- doi bien global sau do KHONG co tac
-# #     dung. Truyen tuong minh qua kwargs moi dam bao dung gia tri lambda.
-# #     """
-# #     rmse_list = []
-# #     deviation_list = []  # do lech tuong doi TB khoi prior (chuan hoa theo bound)
-
-# #     calib_indices, rp_calib, mw_calib, vd_calib = select_stage1_calibration_set(
-# #         robot_positions, m_world, voltage_data, sensor_z_ref
-# #     )
-
-# #     g0 = 7.5
-# #     pos_tol = 0.0015
-
-# #     for lam in lambda_grid:
-# #         lambda_pos = lam if param_name == "pos" else 0.0
-# #         lambda_gain = lam if param_name == "gain" else 0.0
-
-# #         rmses_this_lambda = []
-# #         deviations_this_lambda = []
-
-# #         for s in SENSOR_SAMPLE_IDX:
-# #             sensor_pos_init = sensor_positions[s]
-
-# #             x0 = np.array([
-# #                 sensor_pos_init[0], sensor_pos_init[1], sensor_pos_init[2],
-# #                 1.618,  # offset_init
-# #                 g0
-# #             ])
-# #             lower = [
-# #                 sensor_pos_init[0] - pos_tol, sensor_pos_init[1] - pos_tol,
-# #                 sensor_pos_init[2] - pos_tol, 1.618 - 0.015, 6.9
-# #             ]
-# #             upper = [
-# #                 sensor_pos_init[0] + pos_tol, sensor_pos_init[1] + pos_tol,
-# #                 sensor_pos_init[2] + pos_tol, 1.618 + 0.015, 8.0
-# #             ]
-
-# #             result = least_squares(
-# #                 sensor_residuals,
-# #                 x0,
-# #                 bounds=(lower, upper),
-# #                 args=(rp_calib, mw_calib, vd_calib[:, s]),
-# #                 kwargs=dict(
-# #                     pos_prior=tuple(sensor_pos_init),
-# #                     g0=g0,
-# #                     lambda_pos=lambda_pos,
-# #                     lambda_gain=lambda_gain,
-# #                 ),
-# #                 method="trf",
-# #                 max_nfev=200
-# #             )
-
-# #             n_voltage = vd_calib.shape[0]
-# #             rmse = np.sqrt(np.mean(result.fun[:n_voltage] ** 2))
-# #             rmses_this_lambda.append(rmse)
-
-# #             if param_name == "pos":
-# #                 dev = np.linalg.norm(result.x[0:3] - sensor_pos_init) / pos_tol
-# #             else:  # gain
-# #                 dev = abs(result.x[4] - g0) / 1.1  # chuan hoa theo bien do bound gain [6.9, 8.0]
-
-# #             deviations_this_lambda.append(dev)
-
-# #         rmse_list.append(np.mean(rmses_this_lambda))
-# #         deviation_list.append(np.mean(deviations_this_lambda))
-
-# #         print(f"  lambda_{param_name} = {lam:.3e} | "
-# #               f"mean RMSE = {np.mean(rmses_this_lambda):.6f} | "
-# #               f"mean |dev|/bound = {np.mean(deviations_this_lambda):.4f}")
-
-# #     return rmse_list, deviation_list
+# # Sensor dai dien de sweep nhanh (thay vi chay het 64 sensor cho moi lambda).
+# # Nen chon vai sensor o cac vi tri khac nhau (giua/canh mang) de dai dien.
+# SENSOR_SAMPLE_IDX = [0, 15, 31, 47, 63]  # 5 sensor rai deu tren 64 sensor
 
 
-# # def plot_lcurve(lambda_grid, rmse_list, deviation_list, param_name, guess_value):
-# #     fig, ax1 = plt.subplots(figsize=(7, 5))
+# def run_sweep_1d(param_name, lambda_grid, sensor_positions, robot_positions,
+#                   m_world, voltage_data, sensor_z_ref):
+#     """
+#     Sweep 1 chieu: giu lambda con lai = 0, chi thay doi lambda cua param_name
+#     ('pos' hoac 'gain'). Tra ve (rmse_list, deviation_list).
 
-# #     color1 = "tab:blue"
-# #     ax1.set_xlabel(f"lambda_{param_name}")
-# #     ax1.set_ylabel("Mean RMSE (V)", color=color1)
-# #     ax1.plot(lambda_grid, rmse_list, "o-", color=color1, label="RMSE")
-# #     ax1.set_xscale("log")
-# #     ax1.tick_params(axis="y", labelcolor=color1)
+#     Goi least_squares() TRUC TIEP (khong qua calibrate_single_sensor) vi
+#     lambda_pos/lambda_gain trong sensor_residuals la default-argument, bi
+#     "dong bang" luc dinh nghia ham -- doi bien global sau do KHONG co tac
+#     dung. Truyen tuong minh qua kwargs moi dam bao dung gia tri lambda.
+#     """
+#     rmse_list = []
+#     deviation_list = []  # do lech tuong doi TB khoi prior (chuan hoa theo bound)
 
-# #     ax2 = ax1.twinx()
-# #     color2 = "tab:red"
-# #     ax2.set_ylabel("Mean |deviation| / bound", color=color2)
-# #     ax2.plot(lambda_grid, deviation_list, "s--", color=color2, label="Deviation")
-# #     ax2.tick_params(axis="y", labelcolor=color2)
+#     calib_indices, rp_calib, mw_calib, vd_calib = select_stage1_calibration_set(
+#         robot_positions, m_world, voltage_data, sensor_z_ref
+#     )
 
-# #     ax1.axvline(guess_value, color="gray", linestyle=":", alpha=0.7,
-# #                 label=f"initial guess = {guess_value:.2e}")
+#     g0 = 7.5
+#     pos_tol = 0.0015
 
-# #     fig.suptitle(f"L-curve: RMSE vs Deviation ({param_name})")
-# #     fig.tight_layout()
-# #     output_path = BASE_DIR / f"lcurve_{param_name}.png"
-# #     fig.savefig(output_path, dpi=120)
-# #     plt.close(fig)
-# #     print(f"  -> Da luu: {output_path}")
+#     for lam in lambda_grid:
+#         lambda_pos = lam if param_name == "pos" else 0.0
+#         lambda_gain = lam if param_name == "gain" else 0.0
+
+#         rmses_this_lambda = []
+#         deviations_this_lambda = []
+
+#         for s in SENSOR_SAMPLE_IDX:
+#             sensor_pos_init = sensor_positions[s]
+
+#             x0 = np.array([
+#                 sensor_pos_init[0], sensor_pos_init[1], sensor_pos_init[2],
+#                 1.618,  # offset_init
+#                 g0
+#             ])
+#             lower = [
+#                 sensor_pos_init[0] - pos_tol, sensor_pos_init[1] - pos_tol,
+#                 sensor_pos_init[2] - pos_tol, 1.618 - 0.015, 6.9
+#             ]
+#             upper = [
+#                 sensor_pos_init[0] + pos_tol, sensor_pos_init[1] + pos_tol,
+#                 sensor_pos_init[2] + pos_tol, 1.618 + 0.015, 8.0
+#             ]
+
+#             result = least_squares(
+#                 sensor_residuals,
+#                 x0,
+#                 bounds=(lower, upper),
+#                 args=(rp_calib, mw_calib, vd_calib[:, s]),
+#                 kwargs=dict(
+#                     pos_prior=tuple(sensor_pos_init),
+#                     g0=g0,
+#                     lambda_pos=lambda_pos,
+#                     lambda_gain=lambda_gain,
+#                 ),
+#                 method="trf",
+#                 max_nfev=200
+#             )
+
+#             n_voltage = vd_calib.shape[0]
+#             rmse = np.sqrt(np.mean(result.fun[:n_voltage] ** 2))
+#             rmses_this_lambda.append(rmse)
+
+#             if param_name == "pos":
+#                 dev = np.linalg.norm(result.x[0:3] - sensor_pos_init) / pos_tol
+#             else:  # gain
+#                 dev = abs(result.x[4] - g0) / 1.1  # chuan hoa theo bien do bound gain [6.9, 8.0]
+
+#             deviations_this_lambda.append(dev)
+
+#         rmse_list.append(np.mean(rmses_this_lambda))
+#         deviation_list.append(np.mean(deviations_this_lambda))
+
+#         print(f"  lambda_{param_name} = {lam:.3e} | "
+#               f"mean RMSE = {np.mean(rmses_this_lambda):.6f} | "
+#               f"mean |dev|/bound = {np.mean(deviations_this_lambda):.4f}")
+
+#     return rmse_list, deviation_list
 
 
-# # def main_sweep():
-# #     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
-# #     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
-# #     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
+# def plot_lcurve(lambda_grid, rmse_list, deviation_list, param_name, guess_value):
+#     fig, ax1 = plt.subplots(figsize=(7, 5))
 
-# #     # QUAN TRONG: sensor_z_ref phai la 1 gia tri SCALAR (trung binh z cua
-# #     # tat ca sensor), giong het cach goc dung trong run_calibration():
-# #     #   sensor_z_initial_ref = sensor_positions[:, 2].mean()
-# #     # KHONG duoc truyen mang 64 phan tu vao day.
-# #     sensor_z_ref = sensor_positions[:, 2].mean()
+#     color1 = "tab:blue"
+#     ax1.set_xlabel(f"lambda_{param_name}")
+#     ax1.set_ylabel("Mean RMSE (V)", color=color1)
+#     ax1.plot(lambda_grid, rmse_list, "o-", color=color1, label="RMSE")
+#     ax1.set_xscale("log")
+#     ax1.tick_params(axis="y", labelcolor=color1)
 
-# #     print("=" * 60)
-# #     print(f"Diem khoi dau uoc luong: lambda_pos = {LAMBDA_POS_GUESS:.3e}, "
-# #           f"lambda_gain = {LAMBDA_GAIN_GUESS:.3e}")
-# #     print("=" * 60)
+#     ax2 = ax1.twinx()
+#     color2 = "tab:red"
+#     ax2.set_ylabel("Mean |deviation| / bound", color=color2)
+#     ax2.plot(lambda_grid, deviation_list, "s--", color=color2, label="Deviation")
+#     ax2.tick_params(axis="y", labelcolor=color2)
 
-# #     print("\n--- SWEEP lambda_pos (lambda_gain = 0) ---")
-# #     rmse_pos, dev_pos = run_sweep_1d(
-# #         "pos", lambda_pos_grid, sensor_positions, robot_positions,
-# #         m_world, voltage_data, sensor_z_ref
-# #     )
-# #     plot_lcurve(lambda_pos_grid, rmse_pos, dev_pos, "pos", LAMBDA_POS_GUESS)
+#     ax1.axvline(guess_value, color="gray", linestyle=":", alpha=0.7,
+#                 label=f"initial guess = {guess_value:.2e}")
 
-# #     print("\n--- SWEEP lambda_gain (lambda_pos = 0) ---")
-# #     rmse_gain, dev_gain = run_sweep_1d(
-# #         "gain", lambda_gain_grid, sensor_positions, robot_positions,
-# #         m_world, voltage_data, sensor_z_ref
-# #     )
-# #     plot_lcurve(lambda_gain_grid, rmse_gain, dev_gain, "gain", LAMBDA_GAIN_GUESS)
-
-# #     print("\nDa luu 2 anh L-curve vao thu muc BASE_DIR (xem duong dan o tren)")
-# #     print("Chon lambda tai 'diem khuyu' (elbow): noi RMSE bat dau tang nhanh")
-# #     print("nhung deviation da giam ve gan 0 -- do la vung can bang tot nhat.")
+#     fig.suptitle(f"L-curve: RMSE vs Deviation ({param_name})")
+#     fig.tight_layout()
+#     output_path = BASE_DIR / f"lcurve_{param_name}.png"
+#     fig.savefig(output_path, dpi=120)
+#     plt.close(fig)
+#     print(f"  -> Da luu: {output_path}")
 
 
-# # if __name__ == "__main__":
-# #     main_sweep()
+# def main_sweep():
+#     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
+#     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
+#     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
+
+#     # QUAN TRONG: sensor_z_ref phai la 1 gia tri SCALAR (trung binh z cua
+#     # tat ca sensor), giong het cach goc dung trong run_calibration():
+#     #   sensor_z_initial_ref = sensor_positions[:, 2].mean()
+#     # KHONG duoc truyen mang 64 phan tu vao day.
+#     sensor_z_ref = sensor_positions[:, 2].mean()
+
+#     print("=" * 60)
+#     print(f"Diem khoi dau uoc luong: lambda_pos = {LAMBDA_POS_GUESS:.3e}, "
+#           f"lambda_gain = {LAMBDA_GAIN_GUESS:.3e}")
+#     print("=" * 60)
+
+#     print("\n--- SWEEP lambda_pos (lambda_gain = 0) ---")
+#     rmse_pos, dev_pos = run_sweep_1d(
+#         "pos", lambda_pos_grid, sensor_positions, robot_positions,
+#         m_world, voltage_data, sensor_z_ref
+#     )
+#     plot_lcurve(lambda_pos_grid, rmse_pos, dev_pos, "pos", LAMBDA_POS_GUESS)
+
+#     print("\n--- SWEEP lambda_gain (lambda_pos = 0) ---")
+#     rmse_gain, dev_gain = run_sweep_1d(
+#         "gain", lambda_gain_grid, sensor_positions, robot_positions,
+#         m_world, voltage_data, sensor_z_ref
+#     )
+#     plot_lcurve(lambda_gain_grid, rmse_gain, dev_gain, "gain", LAMBDA_GAIN_GUESS)
+
+#     print("\nDa luu 2 anh L-curve vao thu muc BASE_DIR (xem duong dan o tren)")
+#     print("Chon lambda tai 'diem khuyu' (elbow): noi RMSE bat dau tang nhanh")
+#     print("nhung deviation da giam ve gan 0 -- do la vung can bang tot nhat.")
+
+
+# if __name__ == "__main__":
+#     main_sweep()
 
 
 
