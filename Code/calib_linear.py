@@ -18,8 +18,8 @@ VOLTAGE_DATA_PATH = BASE_DIR / "grid_data.csv"
 OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
 
 # ---- outputs for the 2-stage calibration framework ----
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha.csv"
+PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_new.csv"
+ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
 
 
 # =============================================================================
@@ -34,7 +34,7 @@ MU0_OVER_4PI = 1e-7
 # to Stage 2 (alpha(h) fit). No height-based stratification is done anymore
 # -- both stages just see a random cross-section of the working volume.
 N_TOTAL_CALIB_SAMPLES = 400
-N_STAGE1_SAMPLES = 240
+N_STAGE1_SAMPLES = 200
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   
 
 # ----  Stage 1 regularization weights (physical priors)  ----
@@ -43,6 +43,7 @@ N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES
 # voltage data actually demands it. Offset is intentionally NOT regularized.
 # NOTE: theta/phi (orientation) removed entirely -- sensor direction is
 # fixed to straight-up [0, 0, 1], so there is no orientation prior/lambda.
+
 LAMBDA_POS = 2000    # position prior weight (x, y, z)   [1/m^2 scale]
 LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
 
@@ -54,17 +55,18 @@ LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
 # no height dependence" -- so c1 can only pick up a nonzero slope when the
 # Stage-2 voltage residuals actually demand it, instead of silently
 # absorbing leftover gain/offset error from Stage 1.
-#
+
 # IMPORTANT: these two lambdas are NOT calibrated for your actual data yet.
 # Same as LAMBDA_POS/LAMBDA_GAIN above, you should sweep them (see the
 # L-curve sweep pattern later in the old script) and pick the elbow: small
 # enough that RMSE isn't hurt, large enough that c1 stays physically
 # plausible (i.e. doesn't swing wildly if you re-run with a different
 # random 400-point draw).
-ALPHA_C0_PRIOR = 1.0     # prior: no multiplicative correction
-ALPHA_C1_PRIOR = 0.0     # prior: no height-dependence
-LAMBDA_ALPHA_C0 = 1e-2   # ridge weight on c0 -> 1          [dimensionless]
-LAMBDA_ALPHA_C1 = 1e2    # ridge weight on c1 -> 0          [1/m^2 scale]
+
+ALPHA_C0_PRIOR = 0.34     # prior: no multiplicative correction
+ALPHA_C1_PRIOR = 0.96     # prior: no height-dependence
+LAMBDA_ALPHA_C0 = 5   # ridge weight on c0 -> 1          [dimensionless]
+LAMBDA_ALPHA_C1 = 100    # ridge weight on c1 -> 0          [1/m^2 scale]
 
 # =============================================================================
 # DIPOLE MODEL
@@ -329,7 +331,7 @@ def calibrate_single_sensor(
 
 
 # =============================================================================
-# FULL CALIBRATION  (unchanged)
+# FULL CALIBRATION  
 # =============================================================================
 
 def run_calibration(
@@ -361,7 +363,7 @@ def run_calibration(
 
 
 # =============================================================================
-# NEW: RANDOM 400-POINT SAMPLING -> STAGE 1 (240) / STAGE 2 (160) SPLIT
+# RANDOM 400-POINT SAMPLING -> STAGE 1 (240) / STAGE 2 (160) SPLIT
 # =============================================================================
 # Replaces select_region_samples() + select_stage1_calibration_set() from
 # the region-based script. No height stratification anymore -- just draw
@@ -412,7 +414,7 @@ def select_stage1_stage2_split(
 
 
 # =============================================================================
-# NEW: STAGE 2 - GLOBAL LINEAR ALPHA(H) = C0 + C1*H  (closed-form ridge)
+# STAGE 2 - GLOBAL LINEAR ALPHA(H) = C0 + C1*H  (closed-form ridge)
 # =============================================================================
 # height region, we fit a single alpha(h) = c0 + c1*h shared across ALL
 # sensors (pooled least squares, same pooling philosophy as the old
@@ -420,7 +422,7 @@ def select_stage1_stage2_split(
 #
 #     V[i,s] - a[s] = g[s] * B_proj[i,s] * (c0 + c1 * h[i,s])
 #                    = c0 * (g*B)[i,s]  +  c1 * (g*B*h)[i,s]
-#
+
 # is still ordinary linear regression -> solved via ridge-regularized
 # normal equations, no scipy least_squares/bounds needed. The ridge priors
 # (c0 -> 1, c1 -> 0) keep c1 from silently absorbing residual gain/offset
@@ -519,7 +521,7 @@ def save_results(results, rmses, output_file):
 
 
 # =============================================================================
-# SAVE STAGE 1 / STAGE 2 RESULTS (required output files)
+# SAVE STAGE 1 / STAGE 2 RESULTS 
 # =============================================================================
 
 def save_physical_results(results, output_file):
@@ -639,3 +641,142 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+# ALPHA_SIGMA_C0 = 0.05
+# ALPHA_SIGMA_C1 = 2.0
+ 
+# N_SWEEP_POINTS = 9  # so diem lambda, log-spaced, tu 1/100x den 100x quanh guess
+ 
+ 
+# def run_sweep_alpha(physical_results, rp2, mw2, vd2,
+#                      sigma_c0=ALPHA_SIGMA_C0, sigma_c1=ALPHA_SIGMA_C1,
+#                      n_points=N_SWEEP_POINTS):
+#     """
+#     Sweep 1 chieu cho lambda_c0 va lambda_c1 (moi lan chi bat 1 lambda,
+#     lambda con lai = 0), dung LAI DUNG 1 bo (rp2, mw2, vd2) cho moi diem
+#     luoi -- vi la closed-form nen khong can subsample.
+ 
+#     Tra ve dict voi 2 L-curve (pos-style) de ve/chon elbow.
+#     """
+#     # ---- RMSE khong-regularize, dung de uoc luong diem khoi dau ----
+#     alpha_no_reg = calibrate_alpha_linear(
+#         physical_results, rp2, mw2, vd2, lambda_c0=0.0, lambda_c1=0.0
+#     )
+#     rmse_no_reg = alpha_no_reg["rmse"]
+#     print(f"[Sweep] RMSE khong-regularize (Stage 2) = {rmse_no_reg:.6f} V")
+ 
+#     lambda_c0_guess = (rmse_no_reg / sigma_c0) ** 2
+#     lambda_c1_guess = (rmse_no_reg / sigma_c1) ** 2
+#     print(f"[Sweep] Diem khoi dau: lambda_c0 = {lambda_c0_guess:.3e}, "
+#           f"lambda_c1 = {lambda_c1_guess:.3e}")
+ 
+#     lambda_c0_grid = np.geomspace(lambda_c0_guess / 100, lambda_c0_guess * 100, n_points)
+#     lambda_c1_grid = np.geomspace(lambda_c1_guess / 100, lambda_c1_guess * 100, n_points)
+ 
+#     results_sweep = {}
+ 
+#     # ---- sweep lambda_c0 (lambda_c1 = 0) ----
+#     print("\n--- SWEEP lambda_c0 (lambda_c1 = 0) ---")
+#     rmse_list, dev_list = [], []
+#     for lam in lambda_c0_grid:
+#         fit = calibrate_alpha_linear(
+#             physical_results, rp2, mw2, vd2,
+#             lambda_c0=lam, lambda_c1=0.0
+#         )
+#         dev = abs(fit["c0"] - ALPHA_C0_PRIOR) / sigma_c0  # chuan hoa theo sigma
+#         rmse_list.append(fit["rmse"])
+#         dev_list.append(dev)
+#         print(f"  lambda_c0 = {lam:.3e} | RMSE = {fit['rmse']:.6f} | "
+#               f"c0 = {fit['c0']:.4f} | |dev|/sigma = {dev:.4f}")
+#     results_sweep["c0"] = (lambda_c0_grid, rmse_list, dev_list, lambda_c0_guess)
+ 
+#     # ---- sweep lambda_c1 (lambda_c0 = 0) ----
+#     print("\n--- SWEEP lambda_c1 (lambda_c0 = 0) ---")
+#     rmse_list, dev_list = [], []
+#     for lam in lambda_c1_grid:
+#         fit = calibrate_alpha_linear(
+#             physical_results, rp2, mw2, vd2,
+#             lambda_c0=0.0, lambda_c1=lam
+#         )
+#         dev = abs(fit["c1"] - ALPHA_C1_PRIOR) / sigma_c1  # chuan hoa theo sigma
+#         rmse_list.append(fit["rmse"])
+#         dev_list.append(dev)
+#         print(f"  lambda_c1 = {lam:.3e} | RMSE = {fit['rmse']:.6f} | "
+#               f"c1 = {fit['c1']:.4f} | |dev|/sigma = {dev:.4f}")
+#     results_sweep["c1"] = (lambda_c1_grid, rmse_list, dev_list, lambda_c1_guess)
+ 
+#     return results_sweep
+ 
+ 
+# def plot_lcurve_alpha(lambda_grid, rmse_list, dev_list, param_name, guess_value):
+#     fig, ax1 = plt.subplots(figsize=(7, 5))
+ 
+#     color1 = "tab:blue"
+#     ax1.set_xlabel(f"lambda_{param_name}")
+#     ax1.set_ylabel("RMSE Stage 2 (V)", color=color1)
+#     ax1.plot(lambda_grid, rmse_list, "o-", color=color1, label="RMSE")
+#     ax1.set_xscale("log")
+#     ax1.tick_params(axis="y", labelcolor=color1)
+ 
+#     ax2 = ax1.twinx()
+#     color2 = "tab:red"
+#     ax2.set_ylabel("|deviation| / sigma", color=color2)
+#     ax2.plot(lambda_grid, dev_list, "s--", color=color2, label="Deviation")
+#     ax2.tick_params(axis="y", labelcolor=color2)
+ 
+#     ax1.axvline(guess_value, color="gray", linestyle=":", alpha=0.7,
+#                 label=f"initial guess = {guess_value:.2e}")
+ 
+#     fig.suptitle(f"L-curve: RMSE vs Deviation ({param_name})")
+#     fig.tight_layout()
+#     output_path = BASE_DIR / f"lcurve_alpha_{param_name}.png"
+#     fig.savefig(output_path, dpi=120)
+#     plt.close(fig)
+#     print(f"  -> Da luu: {output_path}")
+ 
+ 
+# def main_sweep_alpha():
+#     """
+#     Chay doc lap: doc lai Calibration_Physical.csv da luu tu Stage 1,
+#     tu ve lai 400 diem / chia 240-160 (KHAC voi lan chay main() truoc do
+#     vi khong set seed) chi de sweep Stage 2.
+#     """
+#     physical_df = pd.read_csv(PHYSICAL_OUTPUT_PATH)
+#     # build lai physical_results 10-cot ma calibrate_alpha_linear can:
+#     # [x, y, z, a, g, nx, ny, nz, theta, phi]
+#     n_sensors = len(physical_df)
+#     physical_results = np.zeros((n_sensors, 10))
+#     physical_results[:, 0] = physical_df["x"].values
+#     physical_results[:, 1] = physical_df["y"].values
+#     physical_results[:, 2] = physical_df["z"].values
+#     physical_results[:, 3] = physical_df["offset"].values
+#     physical_results[:, 4] = physical_df["gain"].values
+#     physical_results[:, 7] = 1.0  # nz (direction fixed straight up)
+ 
+#     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
+#     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
+#     n_samples = min(len(robot_positions), len(voltage_data))
+#     robot_positions = robot_positions[:n_samples]
+#     m_world = m_world[:n_samples]
+#     voltage_data = voltage_data[:n_samples]
+ 
+#     (_, _, _, _), (_, rp2, mw2, vd2) = select_stage1_stage2_split(
+#         robot_positions, m_world, voltage_data
+#     )
+ 
+#     sweep_out = run_sweep_alpha(physical_results, rp2, mw2, vd2)
+ 
+#     lambda_c0_grid, rmse_c0, dev_c0, guess_c0 = sweep_out["c0"]
+#     plot_lcurve_alpha(lambda_c0_grid, rmse_c0, dev_c0, "c0", guess_c0)
+ 
+#     lambda_c1_grid, rmse_c1, dev_c1, guess_c1 = sweep_out["c1"]
+#     plot_lcurve_alpha(lambda_c1_grid, rmse_c1, dev_c1, "c1", guess_c1)
+ 
+#     print("\nDa luu 2 anh L-curve (lcurve_alpha_c0.png, lcurve_alpha_c1.png)")
+#     print("Chon lambda tai 'diem khuyu' (elbow): noi RMSE bat dau tang nhanh")
+#     print("nhung deviation da giam ve gan 0 -- do la vung can bang tot nhat.")
+#     print("Sau khi chon xong, gan gia tri vao LAMBDA_ALPHA_C0 / LAMBDA_ALPHA_C1")
+#     print("o dau file va chay lai main() binh thuong.")
+
+# if __name__ == "__main__":
+#     main_sweep_alpha()
