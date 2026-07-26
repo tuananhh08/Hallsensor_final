@@ -384,7 +384,7 @@ def select_region_samples(
 
 
 # =============================================================================
-# NEW: STAGE 1 - STRATIFIED CALIBRATION SET (fixed, reused in Stage 2)
+# STAGE 1 - STRATIFIED CALIBRATION SET (fixed, reused in Stage 2)
 # =============================================================================
 
 def select_stage1_calibration_set(
@@ -423,7 +423,7 @@ def select_stage1_calibration_set(
 
 
 # =============================================================================
-# NEW: STAGE 2 - CLOSED-FORM ALPHA PER REGION
+# STAGE 2 - CLOSED-FORM ALPHA PER REGION
 # =============================================================================
 
 def calibrate_alpha_by_region(physical_results, rp_calib, mw_calib, vd_calib):

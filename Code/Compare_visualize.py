@@ -5,26 +5,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from pyparsing import alphas
-
 # =============================================================================
 # FILE PATHS  (sua lai neu ban chay o may khac)
 # =============================================================================
 BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6")
 
-PHYSICAL_PATH = BASE_DIR / "Calibration_Physical.csv"
-ALPHA_PATH = BASE_DIR / "Calibration_Alpha.csv"
+PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
+ALPHA_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
 VOLTAGE_PATH = BASE_DIR / "Random_data.csv"
 COORDS_PATH = BASE_DIR / "Random_points_coordinates.csv"
 
-OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots"
+OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-RMSE_SUMMARY_PATH = BASE_DIR / "outputs/rmse_summary.csv"
-
-# ----  region boundaries (phai khop voi script calib) ----
-REGION1_H_MAX = 0.040
-REGION2_H_MAX = 0.055
+RMSE_SUMMARY_PATH = BASE_DIR / "outputs/rmse_summary_new.csv"
 
 MU0_OVER_4PI = 1e-7
 
@@ -60,13 +54,12 @@ def load_physical_calib(path):
 
 
 def load_alpha(path):
-    """Region,Alpha -> dict {1: alpha1, 2: alpha2, 3: alpha3}"""
+    """coefficient,value -> dict {'c0': c0, 'c1': c1} (alpha(h) = c0 + c1*h)"""
     df = pd.read_csv(path).dropna()
-    alphas = {}
+    alpha_coeffs = {}
     for _, row in df.iterrows():
-        region_num = int(str(row["Region"]).strip().split()[-1])
-        alphas[region_num] = float(row["Alpha"])
-    return alphas
+        alpha_coeffs[str(row["coefficient"]).strip()] = float(row["value"])
+    return alpha_coeffs
 
 
 def load_voltage_data(path):
@@ -86,25 +79,19 @@ def load_robot_pose(path):
 
 
 # =============================================================================
-# ALPHA-BY-REGION LOOKUP (giong het logic Stage 2 trong calib_region_based.py)
+# ALPHA(H) LOOKUP (giong het logic Stage 2 trong calib_random400_linear_alpha.py)
 # =============================================================================
-def alpha_for_h(h, alphas):
-    """h: (N,) array = z_capsule - z_sensor. Tra ve (N,) mang alpha tuong ung."""
-    alpha_arr = np.empty_like(h)
-    region1_mask = h < REGION1_H_MAX
-    region2_mask = (h >= REGION1_H_MAX) & (h < REGION2_H_MAX)
-    region3_mask = h >= REGION2_H_MAX
-
-    alpha_arr[region1_mask] = alphas[1]
-    alpha_arr[region2_mask] = alphas[2]
-    alpha_arr[region3_mask] = alphas[3]
-    return alpha_arr
+def alpha_for_h(h, alpha_coeffs):
+    """h: (N,) array = z_capsule - z_sensor. Tra ve (N,) mang alpha(h) = c0 + c1*h."""
+    c0 = alpha_coeffs["c0"]
+    c1 = alpha_coeffs["c1"]
+    return c0 + c1 * h
 
 
 # =============================================================================
 # COMPUTE V_pred FOR ONE SENSOR
 # =============================================================================
-def compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alphas):
+def compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alpha_coeffs):
     x, y, z = sensor_row["x"], sensor_row["y"], sensor_row["z"]
     a = sensor_row["offset"]
     g = sensor_row["gain"]
@@ -118,32 +105,10 @@ def compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alphas):
     B_proj = B @ sensor_dir                       # (N,)
     h = robot_positions[:, 2] - z
 
-    # mask1 = h < 0.045
-    # mask2 = (h >= 0.045) & (h < 0.065)
-    # mask3 = h >= 0.065
-    # for region_name, mask in zip(
-    #     ["R1", "R2", "R3"],
-    #     [mask1, mask2, mask3]
-    # ):
+    alpha_sample = alpha_for_h(h, alpha_coeffs)   # (N,)
 
-    #     B_region = B_proj[mask]
+    v_pred = a + alpha_sample * g * B_proj
 
-    #     if len(B_region) == 0:
-    #         continue
-
-    #     print(f"\n===== {region_name} =====")
-    #     print("Samples :", len(B_region))
-    #     print("Mean    :", np.mean(B_region))
-    #     print("Median  :", np.median(B_region))
-    #     print("Min     :", np.min(B_region))
-    #     print("Max     :", np.max(B_region))
-    #     print("Positive:", np.sum(B_region > 0))
-    #     print("Negative:", np.sum(B_region < 0))
-
-    alpha_sample = alpha_for_h(h, alphas)         # (N,)
-
-    v_pred = a + alpha_sample * g * B_proj 
-    
     return v_pred
 
 
@@ -152,7 +117,7 @@ def compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alphas):
 # =============================================================================
 def main():
     physical_df = load_physical_calib(PHYSICAL_PATH)
-    alphas = load_alpha(ALPHA_PATH)
+    alpha_coeffs = load_alpha(ALPHA_PATH)
     voltage_data, voltage_cols = load_voltage_data(VOLTAGE_PATH)
     robot_positions, m_world = load_robot_pose(COORDS_PATH)
 
@@ -177,7 +142,7 @@ def main():
     for s in range(n_sensors):
         sensor_row = physical_df.iloc[s]
         v_meas = voltage_data[:, s]
-        v_pred = compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alphas)
+        v_pred = compute_vpred_for_sensor(sensor_row, robot_positions, m_world, alpha_coeffs)
 
         rmse_s = np.sqrt(np.mean((v_meas - v_pred) ** 2))
         per_sensor_rmse.append(rmse_s)
