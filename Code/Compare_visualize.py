@@ -6,14 +6,14 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 # =============================================================================
-# FILE PATHS  (sua lai neu ban chay o may khac)
+# FILE PATHS  
 # =============================================================================
 BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6")
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
 ALPHA_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
-VOLTAGE_PATH = BASE_DIR / "Random_data.csv"
-COORDS_PATH = BASE_DIR / "Random_points_coordinates.csv"
+VOLTAGE_PATH = BASE_DIR / "Helix_data.csv"
+COORDS_PATH = BASE_DIR / "Helix_points_coordinates.csv"
 
 OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,7 +24,7 @@ MU0_OVER_4PI = 1e-7
 
 
 # =============================================================================
-# DIPOLE MODEL (giu nguyen cong thuc goc)
+# DIPOLE MODEL 
 # =============================================================================
 def dipole_field(r_vec, m_vec):
     """Calculate magnetic field from dipole model.
@@ -79,7 +79,7 @@ def load_robot_pose(path):
 
 
 # =============================================================================
-# ALPHA(H) LOOKUP (giong het logic Stage 2 trong calib_random400_linear_alpha.py)
+# ALPHA(H) LOOKUP 
 # =============================================================================
 def alpha_for_h(h, alpha_coeffs):
     """h: (N,) array = z_capsule - z_sensor. Tra ve (N,) mang alpha(h) = c0 + c1*h."""

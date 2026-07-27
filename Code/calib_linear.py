@@ -64,9 +64,10 @@ LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
 # enough that RMSE isn't hurt, large enough that c1 stays physically
 # plausible (i.e. doesn't swing wildly if you re-run with a different
 # random 400-point draw).
-ALPHA_C0_PRIOR = 0.35     # prior: no multiplicative correction
-ALPHA_C1_PRIOR = 1.0     # prior: no height-dependence
-LAMBDA_ALPHA_C0 = 0   # ridge weight on c0        [dimensionless]
+
+ALPHA_C0_PRIOR = 0.25     # prior: no multiplicative correction
+ALPHA_C1_PRIOR = 1.45     # prior: no height-dependence
+LAMBDA_ALPHA_C0 = 1e-5   # ridge weight on c0        [dimensionless]
 LAMBDA_ALPHA_C1 = 1e-4    # ridge weight on c1          [1/m^2 scale]
 
 # ----  NEW: bounds cho c0, c1 (thuat toan van la ridge least squares nhu
@@ -158,7 +159,7 @@ def load_sensor_offsets(file_path):
 
 
 # =============================================================================
-# RESIDUAL FUNCTION  (unchanged from the region-based script)
+# RESIDUAL FUNCTION  
 # =============================================================================
 
 def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
@@ -294,7 +295,7 @@ def calibrate_single_sensor(
             g0=g0,
         ),
         method='trf',
-        max_nfev=200
+        max_nfev=500
     )
 
     # ----------------------------------------------------
@@ -482,7 +483,7 @@ def calibrate_alpha_linear(
     # ---- Ridge least squares, VAN CUNG 1 bai toan nhu truoc ----
     # minimize ||y - X @ theta||^2
     #          + lambda_c0*(c0 - c0_prior)^2 + lambda_c1*(c1 - c1_prior)^2
-    #
+    
     # NEW: them bounds cho (c0, c1) -> np.linalg.solve (normal equations,
     # khong bound duoc) khong con dung nua. Thay bang cach augment 2 dong
     # regularize vao thang ma tran thiet ke (giong het kieu sensor_residuals
@@ -546,7 +547,7 @@ def save_results(results, rmses, output_file):
 
 
 # =============================================================================
-# SAVE STAGE 1 / STAGE 2 RESULTS (required output files)
+# SAVE STAGE 1 / STAGE 2 RESULTS 
 # =============================================================================
 
 def save_physical_results(results, output_file):

@@ -264,9 +264,9 @@ BASE_DIR = Path(
 CALIB_PATH = BASE_DIR / "Calibration_Physical.csv"
 ROBOT_POSE_PATH = BASE_DIR / "Helix_points_coordinates.csv"
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical.csv"
-ALPHA_PATH = BASE_DIR / "Calibration_Alpha.csv"   # MOI: file alpha theo region
+ALPHA_PATH = BASE_DIR / "Calibration_Alpha.csv"   
 
-OUTPUT_DIR = BASE_DIR / "Residual_vs_h_and_Bz_with_alpha"  # MOI: doi ten folder de khong de len ket qua khong-alpha truoc do
+OUTPUT_DIR = BASE_DIR / "Residual_vs_h_and_Bz_with_alpha"  
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -358,7 +358,7 @@ def load_alpha(path):
     return alphas
 
 # =============================================================================
-# ALPHA-BY-REGION LOOKUP (giong het logic Stage 2 trong calib_region_based.py)
+# ALPHA-BY-REGION LOOKUP 
 # =============================================================================
 def alpha_for_h(h, alphas):
     """h: (N,) array = z_capsule - z_sensor. Tra ve (N,) mang alpha tuong ung."""
