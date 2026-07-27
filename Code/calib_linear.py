@@ -65,15 +65,11 @@ LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
 # plausible (i.e. doesn't swing wildly if you re-run with a different
 # random 400-point draw).
 
-ALPHA_C0_PRIOR = 0.25     # prior: no multiplicative correction
-ALPHA_C1_PRIOR = 1.45     # prior: no height-dependence
-LAMBDA_ALPHA_C0 = 1e-5   # ridge weight on c0        [dimensionless]
-LAMBDA_ALPHA_C1 = 1e-4    # ridge weight on c1          [1/m^2 scale]
+ALPHA_C0_PRIOR = 0.24   
+ALPHA_C1_PRIOR = 1.6     
+LAMBDA_ALPHA_C0 = 1e-4   # ridge weight on c0        [dimensionless]
+LAMBDA_ALPHA_C1 = 1e-4   # ridge weight on c1          [1/m^2 scale]
 
-# ----  NEW: bounds cho c0, c1 (thuat toan van la ridge least squares nhu
-# tren, chi doi solver tu np.linalg.solve (khong bound) sang
-# scipy.optimize.lsq_linear (co bound) de rang buoc nghiem trong khoang
-# vat ly hop ly)  ----
 ALPHA_C0_BOUNDS = (-0.3, 1.3)   # alpha(h=0) = c0 phai trong khoang nay
 ALPHA_C1_BOUNDS = (-5, 5)   # do doc c1 (1/m) phai trong khoang nay
 
@@ -226,7 +222,7 @@ def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
 
 
 # =============================================================================
-# SINGLE SENSOR CALIBRATION  (unchanged from the region-based script)
+# SINGLE SENSOR CALIBRATION  
 # =============================================================================
 
 def calibrate_single_sensor(
@@ -295,7 +291,7 @@ def calibrate_single_sensor(
             g0=g0,
         ),
         method='trf',
-        max_nfev=500
+        max_nfev=250
     )
 
     # ----------------------------------------------------
@@ -667,6 +663,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
 
 # "code o duoi khong su dung regularize"
 
