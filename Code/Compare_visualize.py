@@ -12,8 +12,8 @@ BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6"
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
 ALPHA_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
-VOLTAGE_PATH = BASE_DIR / "grid_data.csv"
-COORDS_PATH = BASE_DIR / "grid_points_coordinates.csv"
+VOLTAGE_PATH = BASE_DIR / "Helix_data.csv"
+COORDS_PATH = BASE_DIR / "Helix_points_coordinates.csv"
 
 OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
