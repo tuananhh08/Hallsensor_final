@@ -23,13 +23,13 @@ class ConvNeXtBlock(nn.Module):
     def __init__(self, in_ch: int, out_ch: int, stride: int = 1, drop_path_rate: float = 0.0):
         super().__init__()
 
-        self.dw   = nn.Conv2d(in_ch, in_ch, 3, stride=stride, padding=1, groups=in_ch, bias=False)
+        self.dw   = nn.Conv2d(in_ch, in_ch, 5, stride=stride, padding=2, groups=in_ch, bias=False)
         self.bn1  = nn.BatchNorm2d(in_ch)
-        self.act1 = nn.LeakyReLU(0.01, inplace=True)
+        self.act1 = nn.SiLU(inplace=True)
 
         self.pw   = nn.Conv2d(in_ch, out_ch, 1, bias=False)
         self.bn2  = nn.BatchNorm2d(out_ch)
-        self.act2 = nn.LeakyReLU(0.01, inplace=True)
+        self.act2 = nn.SiLU(inplace=True)
 
         self.drop_path = DropPath(drop_path_rate)
 

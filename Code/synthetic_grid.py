@@ -9,9 +9,10 @@ from pathlib import Path
 
 # ─── Args ─────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()
-parser.add_argument("--calib",      default="Calibration_Alpha_new.csv")
-parser.add_argument("--out_coord",  default="synthetic_grid.csv")
-parser.add_argument("--out_volt",   default="synthetic_data.csv")
+parser.add_argument("--calib",      default="Calibration_Physical_new.csv")
+parser.add_argument("--alpha",      default="Calibration_Alpha_new.csv")
+parser.add_argument("--out_coord",  default="synthetic_grid_coordinates.csv")
+parser.add_argument("--out_volt",   default="synthetic_grid_data.csv")
 parser.add_argument("--seed",       type=int, default=42)
 args = parser.parse_args()
 
@@ -41,23 +42,26 @@ print(f"  gain range      : [{gain_arr.min():.4f},  {gain_arr.max():.4f}] V/T")
 sensor_center = sensor_pos.mean(axis=0)
 print(f"  Sensor center   : {sensor_center}")
 
-roi_width  = 0.14    # m
-roi_depth  = 0.14    # m
+roi_width  = 0.15    # m
+roi_depth  = 0.15    # m
 roi_height = 0.075   # m
 
-x_min = sensor_center[0] - roi_width  / 2
-x_max = sensor_center[0] + roi_width  / 2
-y_min = sensor_center[1] - roi_depth  / 2
-y_max = sensor_center[1] + roi_depth  / 2
-z_min = sensor_center[2] + 0.01
-z_max = sensor_center[2] + roi_height
+x_min = -0.045  # -4.5cm
+x_max = 0.11    # 11cm
 
-num_xy = 22
-num_z  = 20
+y_min = 0.63   # 63cm
+y_max = 0.78   # 78cm
+
+z_min = -0.0936  # 2.5cm above sensor plane
+z_max = -0.0436  # 7.5cm above sensor plane
+
+num_xy = 21
+num_z  = 16
 
 x_vals = np.linspace(x_min, x_max, num_xy)
 y_vals = np.linspace(y_min, y_max, num_xy)
 z_vals = np.linspace(z_min, z_max, num_z)
+
 
 print(f"\n  ROI x           : [{x_min:.4f}, {x_max:.4f}] m")
 print(f"  ROI y           : [{y_min:.4f}, {y_max:.4f}] m")

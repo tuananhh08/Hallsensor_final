@@ -143,19 +143,19 @@ class Stage1(nn.Module):
         self.branch1 = nn.Sequential(
             nn.Conv2d(1, c, kernel_size=1, bias=False),
             nn.BatchNorm2d(c),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.SiLU(inplace=True),
         )
         self.branch2 = nn.Sequential(
             nn.Conv2d(1, c, kernel_size=3, padding=1,
                       padding_mode='replicate', bias=False),
             nn.BatchNorm2d(c),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.SiLU(inplace=True),
         )
         self.branch3 = nn.Sequential(
             nn.Conv2d(1, c, kernel_size=5, padding=2,
                       padding_mode='replicate', bias=False),
             nn.BatchNorm2d(c),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.SiLU(inplace=True),
         )
         self.bn_out = nn.BatchNorm2d(out_ch)
 
@@ -185,31 +185,30 @@ class Model(nn.Module):
         )
         self.cbam = CBAM(36)
         
-        # Stage 4: 64x8x8
+        # Stage 4: 72x8x8
         self.stage4 = nn.Sequential(                                    
-            ConvNeXtBlock(36, 64, drop_path_rate=drop_path_rate),
-            ConvNeXtBlock(64, 64, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(36, 72, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(72, 72, drop_path_rate=drop_path_rate),
         )
-        self.cbam2 = CBAM(64)
+        self.cbam2 = CBAM(72)
         
-        # Stage 5: 96x8x8
+        # Stage 5: 144x4x4
         self.stage5 = nn.Sequential(                                    
-            ConvNeXtBlock(64, 96, drop_path_rate=drop_path_rate),
-            ConvNeXtBlock(96, 96, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(72, 144, drop_path_rate=drop_path_rate, stride = 2),
+            ConvNeXtBlock(144, 144, drop_path_rate=drop_path_rate),
         )
 
         # Attention + Pool
-        self.ca5 = ChannelAttention(96)
-        self.pool     = DualPool()                          
+        self.ca5   = ChannelAttention(144)
+        self.pool  = DualPool()                          
 
-        self.head_xyz = nn.Linear(192, 3)
+        self.head_xyz = nn.Linear(288, 3)
 
         self.head_mvec = nn.Sequential(
-            nn.Linear(192, 32),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.Linear(288, 32),
+            nn.Tanh(inplace=True),
             nn.Linear(32, 3),
             )
-
 
     def forward(self, x):
         x = self.stage1(x)            
@@ -230,7 +229,7 @@ class Model(nn.Module):
         xyz = self.head_xyz(x)
 
         m_raw  = self.head_mvec(x)
-        m_norm = F.normalize(m_raw, dim=-1)
+        m_norm = F.normalize(m_raw, dim=-1, eps = 1e-6)
 
         return torch.cat([xyz, m_norm], dim=1)
 

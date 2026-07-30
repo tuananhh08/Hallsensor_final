@@ -1,5 +1,5 @@
 # # =============================================================================
-# # SPLIT TRAIN/VAL  — magnetic moment vector labels (6 cols)
+# # SPLIT TRAIN/VAL 
 # # =============================================================================
 import os, sys, json, pickle, argparse, time
 import uuid
@@ -22,9 +22,10 @@ from loss_mvec import HuberPoseLossMVec
 
 def get_config():
     p = argparse.ArgumentParser()
-    p.add_argument("--voltage",        type=str,   default="grid_calib_data.csv")
-    p.add_argument("--label",          type=str,   default="Grid_points_coordinates.csv")
-    p.add_argument("--calib_csv",      type=str,   default="Calibration_PARAM.csv")
+    p.add_argument("--voltage",              type=str,   default="../Data set 18.6/grid_data.csv")
+    p.add_argument("--label",                type=str,   default="../Data set 18.6/grid_points_coordinates.csv")
+    p.add_argument("--calib_physical_csv",   type=str,   default="../Data set 18.6/Calibration_Physical_new.csv")
+    p.add_argument("--calib_alpha_csv",      type=str,   default="../Data set 18.6/Calibration_Alpha_new.csv")
     p.add_argument("--ckpt_dir",       type=str,   default="./ckpt_mvec")
     p.add_argument("--val_ratio",      type=float, default=0.2)
     p.add_argument("--batch_size",     type=int,   default=64)
@@ -35,7 +36,7 @@ def get_config():
     p.add_argument("--delta_xyz",      type=float, default=0.061)
     p.add_argument("--lambda_pos",     type=float, default=1.0)
     p.add_argument("--lambda_physics", type=float, default=1e-4)
-    p.add_argument("--physics_delta",  type=float, default=0.05, help="Huber delta for relative error")
+    p.add_argument("--physics_delta",  type=float, default=0.002, help="Huber delta for Bz physics term [T]")
     p.add_argument("--warmup_epochs",  type=int,   default=5)
     p.add_argument("--save_every",     type=int,   default=5)
     p.add_argument("--patience",       type=int,   default=45)
@@ -279,7 +280,7 @@ def plot_losses(train_losses, val_losses,
              color="mediumorchid", linewidth=1.5, linestyle="--")
     ax2.set_title("Physics Loss", fontsize=11, fontweight="bold")
     ax2.set_xlabel("Epochs")
-    ax2.set_ylabel("MAE  [V]")
+    ax2.set_ylabel("Huber Bz  [T]")
     ax2.legend(loc="upper right")
     ax2.grid(True, linestyle="--", alpha=0.6)
 
@@ -334,7 +335,9 @@ def main():
     print(f"  Device      : {device} ({gpu_name})")
     print(f"  Voltage     : {cfg.voltage}")
     print(f"  Label       : {cfg.label}")
-    print(f"  Sensor calibaration  : {cfg.calib_csv}")
+    print(f"  Calib physical : {cfg.calib_physical_csv}")
+    print(f"  Calib alpha    : {cfg.calib_alpha_csv}")
+    print(f"  physics_delta  : {cfg.physics_delta}")
     print(f"  Split       : Train {(1-cfg.val_ratio)*100:.0f}% / Val {cfg.val_ratio*100:.0f}%")
     print(f"  Test        : separate file (run test_mvec.py)")
     print(f"  Epochs      : {cfg.num_epochs}  |  Batch: {cfg.batch_size}  |  LR: {cfg.lr}")
@@ -374,14 +377,15 @@ def main():
     model = model.to(device)
 
     criterion = HuberPoseLossMVec(
-        lambda_ori     = cfg.lambda_ori,
-        delta_xyz      = cfg.delta_xyz,
-        lambda_pos     = cfg.lambda_pos,
-        lambda_physics = cfg.lambda_physics,
-        physics_delta  = cfg.physics_delta,
-        calib_csv      = cfg.calib_csv,
-        volt_scaler    = volt_scaler,
-        label_scaler   = label_scaler,
+        lambda_ori           = cfg.lambda_ori,
+        delta_xyz            = cfg.delta_xyz,
+        lambda_pos           = cfg.lambda_pos,
+        lambda_physics       = cfg.lambda_physics,
+        physics_delta        = cfg.physics_delta,
+        calib_physical_csv   = cfg.calib_physical_csv,
+        calib_alpha_csv      = cfg.calib_alpha_csv,
+        volt_scaler          = volt_scaler,
+        label_scaler         = label_scaler,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -615,9 +619,10 @@ if __name__ == "__main__":
 
 # def get_config():
 #     p = argparse.ArgumentParser()
-#     p.add_argument("--voltage",        type=str,   default="grid_calib_data.csv")
-#     p.add_argument("--label",          type=str,   default="Grid_points_coordinates.csv")
-#     p.add_argument("--calib_csv",      type=str,   default="Calibration_GRID_NEW_PARAM_results.csv")
+#     p.add_argument("--voltage",              type=str,   default="../Data set 18.6/grid_data.csv")
+#     p.add_argument("--label",                type=str,   default="../Data set 18.6/grid_points_coordinates.csv")
+#     p.add_argument("--calib_physical_csv",   type=str,   default="../Data set 18.6/Calibration_Physical_new.csv")
+#     p.add_argument("--calib_alpha_csv",      type=str,   default="../Data set 18.6/Calibration_Alpha_new.csv")
 #     p.add_argument("--ckpt_dir",       type=str,   default="./ckpt_mvec")
 #     p.add_argument("--val_ratio",      type=float, default=0.2,
 #                    help="Ti le validation (default=0.15)")
@@ -631,6 +636,7 @@ if __name__ == "__main__":
 #     p.add_argument("--delta_xyz",      type=float, default=0.061)
 #     p.add_argument("--lambda_pos",     type=float, default=1.0)
 #     p.add_argument("--lambda_physics", type=float, default=1e-4)
+#     p.add_argument("--physics_delta",  type=float, default=0.002, help="Huber delta for Bz physics term [T]")
 #     p.add_argument("--warmup_epochs",  type=int,   default=5)
 #     p.add_argument("--save_every",     type=int,   default=5)
 #     p.add_argument("--patience",       type=int,   default=45)
@@ -884,7 +890,7 @@ if __name__ == "__main__":
 #              color="mediumorchid", linewidth=1.5, linestyle="--")
 #     ax2.set_title("Physics Loss", fontsize=11, fontweight="bold")
 #     ax2.set_xlabel("Epochs")
-#     ax2.set_ylabel("MAE  [V]")
+#     ax2.set_ylabel("Huber Bz  [T]")
 #     ax2.legend(loc="upper right")
 #     ax2.grid(True, linestyle="--", alpha=0.6)
 
@@ -939,7 +945,9 @@ if __name__ == "__main__":
 #     print(f"  Device      : {device} ({gpu_name})")
 #     print(f"  Voltage     : {cfg.voltage}")
 #     print(f"  Label       : {cfg.label}")
-#     print(f"  Sensor calibaration  : {cfg.calib_csv}")
+#     print(f"  Calib physical : {cfg.calib_physical_csv}")
+#     print(f"  Calib alpha    : {cfg.calib_alpha_csv}")
+#     print(f"  physics_delta  : {cfg.physics_delta}")
 #     # THÊM MỚI: in split 3 chiều
 #     train_pct = (1 - cfg.val_ratio - cfg.test_ratio) * 100
 #     print(f"  Split       : Train {train_pct:.0f}%"
@@ -984,13 +992,15 @@ if __name__ == "__main__":
 #     model = model.to(device)
 
 #     criterion = HuberPoseLossMVec(
-#         lambda_ori     = cfg.lambda_ori,
-#         delta_xyz      = cfg.delta_xyz,
-#         lambda_pos     = cfg.lambda_pos,
-#         lambda_physics = cfg.lambda_physics,
-#         calib_csv      = cfg.calib_csv,
-#         volt_scaler    = volt_scaler,
-#         label_scaler   = label_scaler,
+#         lambda_ori           = cfg.lambda_ori,
+#         delta_xyz            = cfg.delta_xyz,
+#         lambda_pos           = cfg.lambda_pos,
+#         lambda_physics       = cfg.lambda_physics,
+#         physics_delta        = cfg.physics_delta,
+#         calib_physical_csv   = cfg.calib_physical_csv,
+#         calib_alpha_csv      = cfg.calib_alpha_csv,
+#         volt_scaler          = volt_scaler,
+#         label_scaler         = label_scaler,
 #     ).to(device)
 
 #     optimizer = torch.optim.AdamW(
@@ -1191,5 +1201,4 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     main()
-
 
