@@ -134,11 +134,11 @@ class DualPool(nn.Module):
         mx  = self.max_pool(x).flatten(1)  
         return torch.cat([avg, mx], dim=1)
 
-class Stage1(nn.Module):
+class Stage1(nn.Module):   
     def __init__(self, out_ch: int = 8):
         super().__init__()
-        assert out_ch % 2 == 0
-        c = out_ch // 2
+        assert out_ch % 3 == 0
+        c = out_ch // 3
 
         self.branch1 = nn.Sequential(
             nn.Conv2d(1, c, kernel_size=1, bias=False),
@@ -151,10 +151,16 @@ class Stage1(nn.Module):
             nn.BatchNorm2d(c),
             nn.LeakyReLU(0.01, inplace=True),
         )
+        self.branch3 = nn.Sequential(
+            nn.Conv2d(1, c, kernel_size=5, padding=2,
+                      padding_mode='replicate', bias=False),
+            nn.BatchNorm2d(c),
+            nn.LeakyReLU(0.01, inplace=True),
+        )
         self.bn_out = nn.BatchNorm2d(out_ch)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out = torch.cat([self.branch1(x), self.branch2(x)], dim=1)
+        out = torch.cat([self.branch1(x), self.branch2(x), self.branch3(x)], dim=1)
         return self.bn_out(out) 
 
 
@@ -163,25 +169,25 @@ class Model(nn.Module):
         super().__init__()
         self.out_dim = out_dim
 
-        # Stage 1: 8x8x8
-        self.stage1 = Stage1(out_ch=8)
+        # Stage 1: 9x8x8
+        self.stage1 = Stage1(out_ch=9)
 
-        # Stage 2: 16x8x8
+        # Stage 2: 18x8x8
         self.stage2 = nn.Sequential(
-            ConvNeXtBlock(8,  16, drop_path_rate=drop_path_rate),
-            ConvNeXtBlock(16, 16, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(9,  18, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(18, 18, drop_path_rate=drop_path_rate),
         )
         
-        # Stage 3: 32x8x8
+        # Stage 3: 36x8x8
         self.stage3 = nn.Sequential(
-            ConvNeXtBlock(16, 32, drop_path_rate=drop_path_rate),
-            ConvNeXtBlock(32, 32, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(18, 36, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(36, 36, drop_path_rate=drop_path_rate),
         )
-        self.cbam = CBAM(32)
+        self.cbam = CBAM(36)
         
         # Stage 4: 64x8x8
         self.stage4 = nn.Sequential(                                    
-            ConvNeXtBlock(32, 64, drop_path_rate=drop_path_rate),
+            ConvNeXtBlock(36, 64, drop_path_rate=drop_path_rate),
             ConvNeXtBlock(64, 64, drop_path_rate=drop_path_rate),
         )
         self.cbam2 = CBAM(64)

@@ -24,32 +24,32 @@ BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6"
 
 
 FILES = {
-    "After Calib": {
-        "filename": "Calibration_Physical.csv",
+    "grid": {
+        "filename": "Hall_sensor_positions.csv",
         "color":    "#14b055",
         "marker":   "o",
         "size":     30,
         "alpha":    0.9,
-        "label":    "After Calib",
+        "label":    "grid points",
         "zorder":   5,
     },
-    "Post Calib": {
-        "filename": "Hall_sensor_positions.csv",
+    "helix": {
+        "filename": "Helix_points_coordinates.csv",
         "color":    "#EC7438",
         "marker":   "s",
         "size":     30,
         "alpha":    0.9,
-        "label":    "Post Calib",
+        "label":    "Helix Points",
         "zorder":   2,
-    # },
-    # "Helix_points": {
-    #     "filename": "Helix_points_coordinates.csv",
-    #     "color":    "#3498db",
-    #     "marker":   "d",
-    #     "size":     35,
-    #     "alpha":    0.7,
-    #     "label":    "Helix Points",
-    #     "zorder":   4,
+    },
+    "grid_points": {
+        "filename": "grid_points_coordinates.csv",
+        "color":    "#3498db",
+        "marker":   "d",
+        "size":     35,
+        "alpha":    0.7,
+        "label":    "Grid Points",
+        "zorder":   4,
      }
 }
 
