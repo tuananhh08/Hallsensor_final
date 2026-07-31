@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 class ChannelAttention(nn.Module):
     def __init__(self, in_channels, reduction=4):
         super().__init__()

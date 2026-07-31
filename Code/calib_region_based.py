@@ -384,7 +384,7 @@ def select_region_samples(
 
 
 # =============================================================================
-# STAGE 1 - STRATIFIED CALIBRATION SET (fixed, reused in Stage 2)
+# NEW: STAGE 1 - STRATIFIED CALIBRATION SET (fixed, reused in Stage 2)
 # =============================================================================
 
 def select_stage1_calibration_set(
@@ -423,7 +423,7 @@ def select_stage1_calibration_set(
 
 
 # =============================================================================
-# STAGE 2 - CLOSED-FORM ALPHA PER REGION
+# NEW: STAGE 2 - CLOSED-FORM ALPHA PER REGION
 # =============================================================================
 
 def calibrate_alpha_by_region(physical_results, rp_calib, mw_calib, vd_calib):
@@ -431,7 +431,7 @@ def calibrate_alpha_by_region(physical_results, rp_calib, mw_calib, vd_calib):
     n_samples = rp_calib.shape[0]
     n_sensors = physical_results.shape[0]
 
-    sensor_pos = physical_results[:, 0:3]      # (n_sensors, 3): x, y, z
+    sensor_pos = physical_results[:, 0:3]       # (n_sensors, 3): x, y, z
     a = physical_results[:, 3]                  # (n_sensors,)  offset
     g = physical_results[:, 4]                  # (n_sensors,)  gain
     sensor_dir = physical_results[:, 5:8]       # (n_sensors, 3): nx, ny, nz
