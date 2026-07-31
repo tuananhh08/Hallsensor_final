@@ -59,7 +59,7 @@ class ROIConfig:
         return self.num_spatial * self.num_orientations
 
 
-# ─── Rotation (matches robot_ABB_grid.py) ─────────────────────────────────────
+# ─── Rotation ─────────────────────────────────────
 def angles_to_quaternion(
     pitch_deg: float,
     yaw_deg: float,

@@ -206,7 +206,7 @@ class Model(nn.Module):
 
         self.head_mvec = nn.Sequential(
             nn.Linear(288, 32),
-            nn.Tanh(inplace=True),
+            nn.Tanh(),
             nn.Linear(32, 3),
             )
 
