@@ -21,3 +21,24 @@ test_ckpt/
 
 # File log và dữ liệu debug
 *.log
+
+# Virtual environments
+.venv/
+.venv-1/
+venv/
+
+# VS Code
+.vscode/
+
+# Checkpoints
+ckpt_mvec/
+*.pth
+*.pt
+
+# Synthetic cache
+data_cache_synthetic/
+*.npy
+*.npz
+
+# Dataset
+Data set 18.6/
