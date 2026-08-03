@@ -86,8 +86,11 @@ class HuberPoseLossMVec(nn.Module):
         self.m0             = m0
 
         self.register_buffer("latest_loss_physics", torch.tensor(0.0))
-        self._register_calibration(calib_physical_csv, calib_alpha_csv)
-        self._register_scalers(volt_scaler, label_scaler)
+        # Physics-free ablations must not require calibration/scaler artefacts.
+        self._register_calibration(calib_physical_csv if lambda_physics != 0 else None,
+                                   calib_alpha_csv if lambda_physics != 0 else None)
+        self._register_scalers(volt_scaler if lambda_physics != 0 else None,
+                               label_scaler if lambda_physics != 0 else None)
 
     def _register_calibration(self, physical_path, alpha_path) -> None:
         if physical_path is None: 
@@ -204,7 +207,7 @@ class HuberPoseLossMVec(nn.Module):
             zero = pred.sum() * 0.0
             return zero, zero.detach(), zero.detach()
 
-        if X_b is None:
+        if X_b is None or self.lambda_physics == 0:
             loss_physics = pred.new_zeros(())
             self.latest_loss_physics.zero_()
         else:

@@ -1,19 +1,15 @@
 # # =============================================================================
 # # SPLIT TRAIN/VAL 
 # # =============================================================================
-import os, sys, json, pickle, argparse, time
-import uuid
+import os, sys, json, argparse, time
 import numpy as np
-import pandas as pd
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model import Model
-from loss_mvec import HuberPoseLossMVec
+from data_mvec import PosLabelScaler, build_datasets, load_scalers, copy_cache_metadata
+from training_loop import default_num_workers, make_criterion, make_loaders, train_one_epoch, validate
 
 
 # =============================================================================
@@ -27,6 +23,11 @@ def get_config():
     p.add_argument("--calib_physical_csv",   type=str,   default="../Data set 18.6/Calibration_Physical_new.csv")
     p.add_argument("--calib_alpha_csv",      type=str,   default="../Data set 18.6/Calibration_Alpha_new.csv")
     p.add_argument("--ckpt_dir",       type=str,   default="./ckpt_mvec")
+    p.add_argument("--cache_dir",      type=str,   default=None,
+                   help="Shared memmap cache (default: <ckpt_dir>/data_cache)")
+    p.add_argument("--rebuild_cache",  action="store_true")
+    p.add_argument("--experiment_name", type=str, default="",
+                   help="Optional run subdirectory; does not change cache location")
     p.add_argument("--val_ratio",      type=float, default=0.2)
     p.add_argument("--batch_size",     type=int,   default=64)
     p.add_argument("--num_epochs",     type=int,   default=200)
@@ -41,166 +42,11 @@ def get_config():
     p.add_argument("--save_every",     type=int,   default=5)
     p.add_argument("--patience",       type=int,   default=45)
     p.add_argument("--seed",           type=int,   default=42)
+    p.add_argument("--num_workers", type=int, default=None)
+    p.add_argument("--prefetch_factor", type=int, default=2)
+    p.add_argument("--samples_per_epoch", type=int, default=0)
+    p.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
     return p.parse_args()
-
-
-# =============================================================================
-# LABEL SCALER — xyz only; m_vec pass-through
-# =============================================================================
-
-class PosLabelScaler:
-    """Chỉ scale xyz; m_vec (cols 3:6) pass-through."""
-
-    def __init__(self):
-        self.xyz_scaler = StandardScaler()
-
-    def fit(self, labels):
-        self.xyz_scaler.fit(labels[:, :3])
-
-    def transform(self, labels):
-        out = labels.copy()
-        out[:, :3] = self.xyz_scaler.transform(labels[:, :3])
-        return out
-
-    def inverse_transform(self, labels_scaled):
-        out = np.asarray(labels_scaled, dtype=np.float32).copy()
-        out[:, :3] = self.xyz_scaler.inverse_transform(labels_scaled[:, :3])
-        return out
-
-
-# =============================================================================
-# DATASET
-# =============================================================================
-
-# region agent log helpers
-_DBG_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "debug-eb2a46.log")
-_DBG_SESSION_ID = "eb2a46"
-def _dbg_log(hypothesisId: str, location: str, message: str, data: dict, runId: str = "pre-fix"):
-    try:
-        payload = {
-            "sessionId": _DBG_SESSION_ID,
-            "runId": runId,
-            "hypothesisId": hypothesisId,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-            "id": f"log_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}",
-        }
-        with open(_DBG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-# endregion
-
-
-class PoseDataset(Dataset):
-    def __init__(self, voltages, labels):
-        self.X = torch.tensor(voltages, dtype=torch.float32).view(-1, 1, 8, 8)
-        self.Y = torch.tensor(labels,   dtype=torch.float32)
-    def __len__(self):          return len(self.X)
-    def __getitem__(self, idx): return self.X[idx], self.Y[idx]
-
-
-def build_datasets(voltage_path, label_path, val_ratio, scaler_file, seed=42):
-    """Split train / val. Trả về (train_ds, val_ds, n_train, n_val)."""
-
-    def _read(path):
-        df = pd.read_csv(path, header=0)
-        
-        df_num = df.apply(pd.to_numeric, errors="coerce")
-        
-        before = (len(df_num), df_num.shape[1])
-        
-        df_num = df_num.dropna().reset_index(drop=True)
-        after  = (len(df_num), df_num.shape[1])
-        _dbg_log("H1", "train_mvec.py:_read", "read_csv_auto",
-                 {"path": str(path), "has_header": True,
-                  "shape_before_dropna": list(before),
-                  "shape_after_dropna":  list(after)})
-        return df_num
-
-    volt_df  = _read(voltage_path)
-    label_df = _read(label_path)
-    _dbg_log("H1", "train_mvec.py:build_datasets", "loaded_dataframes",
-             {"voltage_path": str(voltage_path), "label_path": str(label_path),
-              "volt_shape": list(volt_df.shape), "label_shape": list(label_df.shape)})
-
-    assert volt_df.shape[1]  == 64, f"Voltage can 64 cols, co {volt_df.shape[1]}"
-    assert label_df.shape[1] == 6,  f"Label can 6 cols, co {label_df.shape[1]}"
-
-    voltages = volt_df.values.astype(np.float32)
-    labels   = label_df.values.astype(np.float32)
-    N        = min(len(voltages), len(labels))
-    voltages, labels = voltages[:N], labels[:N]
-
-    m_norms = np.linalg.norm(labels[:, 3:6], axis=1)
-    dev     = np.abs(m_norms - 1.0)
-    bad     = dev > 1e-3
-    if bad.any():
-        print(f"  Warning: {bad.sum()} samples have ||m_vec|| != 1 "
-              f"(max dev: {dev.max():.6f}) — normalizing GT m_vec")
-    labels[:, 3:6] = labels[:, 3:6] / (m_norms[:, None] + 1e-12)
-
-    print(f"  Total samples: {N:,}")
-    _dbg_log("H2", "train_mvec.py:build_datasets", "aligned_arrays",
-             {"N_after_min": int(N),
-              "volt_min": float(np.min(voltages)) if N else None,
-              "volt_max": float(np.max(voltages)) if N else None})
-
-    rng       = np.random.default_rng(seed)
-    idx       = rng.permutation(N)
-    n_val     = int(N * val_ratio)
-    n_train   = N - n_val
-    train_idx = idx[:n_train]
-    val_idx   = idx[n_train:]
-    print(f"  Train: {n_train:,}  |  Val: {n_val:,}")
-    _dbg_log("H3", "train_mvec.py:build_datasets", "split_indices",
-             {"seed": int(seed), "val_ratio": float(val_ratio),
-              "n_train": int(n_train), "n_val": int(n_val),
-              "overlap_train_val": int(len(np.intersect1d(train_idx, val_idx)))})
-
-    if os.path.exists(scaler_file):
-        with open(scaler_file, "rb") as f:
-            sc = pickle.load(f)
-        volt_scaler  = sc["volt"]
-        label_scaler = sc["label"]
-        print(f"  Loaded scalers from {scaler_file}")
-        _dbg_log("H4", "train_mvec.py:build_datasets", "loaded_existing_scalers",
-                 {"scaler_file": str(scaler_file)})
-    else:
-        volt_scaler  = MinMaxScaler(feature_range=(0, 1)).fit(voltages[train_idx])
-        label_scaler = PosLabelScaler()
-        label_scaler.fit(labels[train_idx])
-        with open(scaler_file, "wb") as f:
-            pickle.dump({
-                "volt": volt_scaler,
-                "label": label_scaler,
-                "label_format": "mvec",
-            }, f)
-        print(f"  Fitted & saved scalers -> {scaler_file}")
-        _dbg_log("H4", "train_mvec.py:build_datasets", "fitted_new_scalers",
-                 {"scaler_file": str(scaler_file)})
-
-    split_path = os.path.join(os.path.dirname(scaler_file), "split_info2.json")
-    if not os.path.exists(split_path):
-        with open(split_path, "w") as f:
-            json.dump({"train": train_idx.tolist(),
-                       "val":   val_idx.tolist(),
-                       "seed":  seed}, f)
-        print(f"  Split info saved -> {split_path}")
-
-    v_scaled = volt_scaler.transform(voltages)
-    l_scaled = label_scaler.transform(labels)
-    _dbg_log("H5", "train_mvec.py:build_datasets", "scaled_stats",
-             {"v_scaled_min": float(np.min(v_scaled)) if N else None,
-              "v_scaled_max": float(np.max(v_scaled)) if N else None,
-              "l_scaled_mean": [float(x) for x in np.mean(l_scaled, axis=0)] if N else None,
-              "l_scaled_std":  [float(x) for x in np.std(l_scaled,  axis=0)] if N else None})
-
-    train_ds = PoseDataset(v_scaled[train_idx], l_scaled[train_idx])
-    val_ds   = PoseDataset(v_scaled[val_idx],   l_scaled[val_idx])
-    return train_ds, val_ds, n_train, n_val
 
 
 # =============================================================================
@@ -327,6 +173,10 @@ def measure_inference_time(model, device, n_samples=500, n_warmup=50):
 def main():
     cfg    = get_config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    run_dir = os.path.join(cfg.ckpt_dir, cfg.experiment_name) if cfg.experiment_name else cfg.ckpt_dir
+    cache_dir = cfg.cache_dir or os.path.join(cfg.ckpt_dir, "data_cache")
+    if cfg.num_workers is None:
+        cfg.num_workers = default_num_workers(device)
 
     print("\n" + "=" * 65)
     print("  Model Training (m_vec labels, train / val split)")
@@ -346,47 +196,32 @@ def main():
     print(f"  Loss        : HuberPoseLossMVec  lambda_ori={cfg.lambda_ori}"
           f"  delta_xyz={cfg.delta_xyz}")
     print(f"  lambda_pos  : {cfg.lambda_pos}  |  lambda_physics: {cfg.lambda_physics}")
-    print(f"  Ckpt dir    : {cfg.ckpt_dir}")
+    print(f"  Run dir     : {run_dir}")
+    print(f"  Cache dir   : {cache_dir}")
+    print(f"  Workers     : {cfg.num_workers}")
     print("=" * 65 + "\n")
 
-    os.makedirs(cfg.ckpt_dir, exist_ok=True)
+    os.makedirs(run_dir, exist_ok=True)
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
 
-    ckpt_latest = os.path.join(cfg.ckpt_dir, "latest.pt")
-    ckpt_best   = os.path.join(cfg.ckpt_dir, "best.pt")
-    log_file    = os.path.join(cfg.ckpt_dir, "train_log.json")
-    scaler_file = os.path.join(cfg.ckpt_dir, "scalers.pkl")
+    ckpt_latest = os.path.join(run_dir, "latest.pt")
+    ckpt_best   = os.path.join(run_dir, "best.pt")
+    log_file    = os.path.join(run_dir, "train_log.json")
 
     print("Loading dataset ...")
-    train_ds, val_ds, n_train, n_val = build_datasets(
-        cfg.voltage, cfg.label, cfg.val_ratio, scaler_file, seed=cfg.seed)
-
-    pin = (device.type == "cuda")
-    train_loader = DataLoader(train_ds, batch_size=cfg.batch_size,
-                              shuffle=True,  pin_memory=pin, drop_last=True)
-    val_loader   = DataLoader(val_ds,   batch_size=cfg.batch_size,
-                              shuffle=False, pin_memory=pin)
-
-    with open(scaler_file, "rb") as f:
-        sc = pickle.load(f)
-    volt_scaler  = sc["volt"]
-    label_scaler = sc["label"]
+    train_ds, val_ds, n_train, n_val, cache_dir = build_datasets(
+        cfg.voltage, cfg.label, cfg.val_ratio, cfg.seed, cache_dir, cfg.rebuild_cache)
+    copy_cache_metadata(cache_dir, run_dir)
+    train_loader, val_loader = make_loaders(train_ds, val_ds, cfg.batch_size,
+                                             cfg.num_workers, device, cfg.prefetch_factor,
+                                             cfg.samples_per_epoch)
+    sc = load_scalers(cache_dir)
 
     model = Model(out_dim=6)
     model = model.to(device)
 
-    criterion = HuberPoseLossMVec(
-        lambda_ori           = cfg.lambda_ori,
-        delta_xyz            = cfg.delta_xyz,
-        lambda_pos           = cfg.lambda_pos,
-        lambda_physics       = cfg.lambda_physics,
-        physics_delta        = cfg.physics_delta,
-        calib_physical_csv   = cfg.calib_physical_csv,
-        calib_alpha_csv      = cfg.calib_alpha_csv,
-        volt_scaler          = volt_scaler,
-        label_scaler         = label_scaler,
-    ).to(device)
+    criterion = make_criterion(cfg, sc, device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
@@ -395,20 +230,20 @@ def main():
         optimizer, start_factor=0.1, end_factor=1.0,
         total_iters=cfg.warmup_epochs)
     cosine_sch = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=cfg.num_epochs - cfg.warmup_epochs, eta_min=1e-6)
+        optimizer, T_max=max(1, cfg.num_epochs - cfg.warmup_epochs), eta_min=1e-6)
     scheduler  = torch.optim.lr_scheduler.SequentialLR(
         optimizer, schedulers=[warmup_sch, cosine_sch],
         milestones=[cfg.warmup_epochs])
 
     import platform
-    if platform.system() != "Windows":
+    if cfg.compile and device.type == "cuda" and platform.system() != "Windows":
         try:
             model = torch.compile(model)
             print("torch.compile enabled")
         except Exception:
             print("torch.compile not available - skipping")
     else:
-        print("torch.compile disabled (Windows)")
+        print("torch.compile disabled (CPU, Windows, or --no-compile)")
 
     start_epoch, best_val = 1, float("inf")
     train_losses_history   = []
@@ -447,62 +282,14 @@ def main():
     for epoch in range(start_epoch, cfg.num_epochs + 1):
         t0 = time.time()
 
-        model.train()
-        train_loss = train_xyz = train_ang = train_physics = 0.0
-        
-        for X_b, Y_b in train_loader:
-            X_b = X_b.to(device, non_blocking=True)
-            Y_b = Y_b.to(device, non_blocking=True)
-            optimizer.zero_grad(set_to_none=True)
-            
-            with torch.amp.autocast("cuda", enabled=use_amp):
-                pred = model(X_b)
-                
-            loss, loss_xyz, loss_ang = criterion(pred, Y_b, X_b=X_b)
-            loss_phys_batch = criterion.latest_loss_physics
-            
-            if not torch.isfinite(loss):
-                continue
-            
-            amp_scaler.scale(loss).backward()
-            amp_scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            amp_scaler.step(optimizer)
-            amp_scaler.update()
-            
-            n = len(X_b)
-            train_loss    += loss.item()            * n
-            train_xyz     += loss_xyz.item()        * n
-            train_ang     += loss_ang.item()        * n
-            train_physics += loss_phys_batch.item() * n
-            
-        train_loss    /= n_train
-        train_xyz     /= n_train
-        train_ang     /= n_train
-        train_physics /= n_train
+        train_metrics, train_seen = train_one_epoch(model, train_loader, criterion, optimizer, amp_scaler, device)
+        train_loss, train_xyz = train_metrics["loss"], train_metrics["xyz"]
+        train_ang, train_physics = train_metrics["ori"], train_metrics["physics"]
         scheduler.step()
 
-        model.eval()
-        val_loss = val_xyz = val_ang = val_physics = 0.0
-        with torch.no_grad():
-            for X_b, Y_b in val_loader:
-                X_b = X_b.to(device, non_blocking=True)
-                Y_b = Y_b.to(device, non_blocking=True)
-                with torch.amp.autocast("cuda", enabled=use_amp):
-                    pred = model(X_b)
-                loss, loss_xyz, loss_ang = criterion(pred, Y_b, X_b=X_b)
-                loss_phys_batch = criterion.latest_loss_physics
-                if not torch.isfinite(loss):
-                    continue
-                n = len(X_b)
-                val_loss    += loss.item()            * n
-                val_xyz     += loss_xyz.item()        * n
-                val_ang     += loss_ang.item()        * n
-                val_physics += loss_phys_batch.item() * n
-        val_loss    /= n_val
-        val_xyz     /= n_val
-        val_ang     /= n_val
-        val_physics /= n_val
+        val_metrics, val_seen = validate(model, val_loader, criterion, device)
+        val_loss, val_xyz = val_metrics["loss"], val_metrics["xyz"]
+        val_ang, val_physics = val_metrics["ori"], val_metrics["physics"]
 
         train_losses_history.append(train_loss)
         val_losses_history.append(val_loss)
@@ -521,6 +308,9 @@ def main():
             "train_physics": train_physics,
             "val": val_loss, "val_xyz": val_xyz, "val_ang": val_ang,
             "val_physics": val_physics, "lr": lr_now,
+            "n_train_seen": train_seen, "n_val_seen": val_seen,
+            "experiment_name": cfg.experiment_name, "cache_dir": cache_dir,
+            "n_train": n_train, "n_val": n_val,
         })
 
         save_checkpoint(ckpt_latest, epoch, model, optimizer, scheduler,
@@ -537,7 +327,7 @@ def main():
             no_improve += 1
 
         if epoch % cfg.save_every == 0:
-            save_checkpoint(os.path.join(cfg.ckpt_dir, f"epoch_{epoch:04d}.pt"),
+            save_checkpoint(os.path.join(run_dir, f"epoch_{epoch:04d}.pt"),
                             epoch, model, optimizer, scheduler, val_loss, best_val)
 
         if no_improve >= cfg.patience:
@@ -549,7 +339,7 @@ def main():
         val_losses     = val_losses_history,
         train_physics  = train_physics_history,
         val_physics    = val_physics_history,
-        save_path      = os.path.join(cfg.ckpt_dir, "loss_plot.png"),
+        save_path      = os.path.join(run_dir, "loss_plot.png"),
         lambda_physics = cfg.lambda_physics,
     )
 
@@ -578,7 +368,7 @@ def main():
     print(f"  Throughput   : ~{1000/mean_ms:.0f} samples/sec")
     print("=" * 65)
 
-    infer_path = os.path.join(cfg.ckpt_dir, "inference_time.json")
+    infer_path = os.path.join(run_dir, "inference_time.json")
     with open(infer_path, "w") as f:
         json.dump({"device": str(device),
                    "mean_ms": round(mean_ms, 4), "std_ms": round(std_ms, 4),
@@ -588,7 +378,7 @@ def main():
     print(f"  Inference time saved -> {infer_path}")
 
     print(f"\nDone! Best val loss = {best_val:.6f}")
-    print(f"Checkpoints & Plot -> {cfg.ckpt_dir}")
+    print(f"Checkpoints & Plot -> {run_dir}")
 
 
 if __name__ == "__main__":
@@ -1201,4 +991,3 @@ if __name__ == "__main__":
 
 # if __name__ == "__main__":
 #     main()
-
