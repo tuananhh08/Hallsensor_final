@@ -10,17 +10,17 @@ from scipy.optimize import lsq_linear
 # =============================================================================
 BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
 
-SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"   #tọa độ sensors gốc
+SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions2.csv"   #tọa độ sensors gốc
 
-ROBOT_POSE_PATH = BASE_DIR / "grid_points_coordinates.csv"
+ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coord.csv"
 
-VOLTAGE_DATA_PATH = BASE_DIR / "grid_data.csv"
+VOLTAGE_DATA_PATH = BASE_DIR / "grid_calib_data.csv"
 
-OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
+# OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
 
 # ---- outputs for the 2-stage calibration framework ----
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_new.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
+PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_old.csv"
+ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_old.csv"
 
 
 # =============================================================================
@@ -604,7 +604,7 @@ def main():
     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
-    offsets = load_sensor_offsets(OFFSET_FILE_PATH)
+    # offsets = load_sensor_offsets(OFFSET_FILE_PATH)
 
     # Ensure consistent number of samples
     n_samples = min(len(robot_positions), len(voltage_data))
