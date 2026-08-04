@@ -35,10 +35,10 @@ def _read(path):
         df = pd.read_csv(path, header=0)
     return df.apply(pd.to_numeric, errors="coerce").dropna().reset_index(drop=True)
 
-
+# Hàm tính sai số góc
 def orientation_error_deg(m_pred: np.ndarray, m_gt: np.ndarray) -> np.ndarray:
-    m_pred_n = m_pred / (np.linalg.norm(m_pred, axis=1, keepdims=True) + 1e-12)
-    m_gt_n   = m_gt   / (np.linalg.norm(m_gt,   axis=1, keepdims=True) + 1e-12)
+    m_pred_n = m_pred / (np.linalg.norm(m_pred, axis=1, keepdims=True) + 1e-14)
+    m_gt_n   = m_gt   / (np.linalg.norm(m_gt,   axis=1, keepdims=True) + 1e-14)
     dot      = np.sum(m_pred_n * m_gt_n, axis=1)
     dot      = np.clip(dot, -1.0, 1.0)
     return np.degrees(np.arccos(dot))
@@ -85,7 +85,7 @@ volt_tensor = torch.tensor(volt_test, dtype=torch.float32).view(-1, 1, 8, 8)
 gt_xyz  = labels[:, :3]
 gt_mvec = labels[:, 3:6]
 m_norms = np.linalg.norm(gt_mvec, axis=1, keepdims=True)
-gt_mvec = gt_mvec / (m_norms + 1e-12)
+gt_mvec = gt_mvec / (m_norms + 1e-14)
 
 # =============================================================================
 # Load model + checkpoint

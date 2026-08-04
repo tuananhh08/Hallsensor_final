@@ -19,8 +19,8 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 # ─────────────────────────────────────────────
 # CẤU HÌNH
 # ─────────────────────────────────────────────
-# BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6" #WINDOWS
-BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
+BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6" #WINDOWS
+# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
 
 
 FILES = {
@@ -34,7 +34,7 @@ FILES = {
         "zorder":   5,
     },
     "helix": {
-        "filename": "Helix_points_coordinates.csv",
+        "filename": "grid_points_coordinates.csv",
         "color":    "#EC7438",
         "marker":   "s",
         "size":     30,

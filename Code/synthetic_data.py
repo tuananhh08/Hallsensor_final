@@ -39,13 +39,13 @@ class ROIConfig:
     y_max: float = 0.78
     z_min: float = -0.0936
     z_max: float = -0.0436
-    num_xy: int = 11 # -> 21, step hien tai la 15.5 mm
+    num_xy: int = 9 # -> 21, step hien tai la 15.5 mm
     num_z: int = 12  # -> 16, step hien tai la 4.5 mm
-    pitch_min: float = -20.0
-    pitch_max: float = 20.0
-    yaw_min: float = -20.0
-    yaw_max: float = 20.0
-    num_angles: int = 7 # -> 16, step hien tai la 6.67 deg
+    pitch_min: float = -40.0
+    pitch_max: float = 40.0
+    yaw_min: float = -40.0
+    yaw_max: float = 40.0
+    num_angles: int = 11 # -> 16, step hien tai la 6.67 deg
 
     @property
     def num_spatial(self) -> int:
@@ -256,8 +256,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data_dir", type=Path, default=default_data_dir)
     parser.add_argument("--calib_physical", type=str, default="Calibration_Physical_new.csv")
     parser.add_argument("--calib_alpha", type=str, default="Calibration_Alpha_new.csv")
-    parser.add_argument("--out_coord", type=str, default="synthetic_grid_coordinates2.csv")
-    parser.add_argument("--out_volt", type=str, default="synthetic_grid_data2.csv")
+    parser.add_argument("--out_coord", type=str, default="synthetic_grid_coordinates.csv")
+    parser.add_argument("--out_volt", type=str, default="synthetic_grid_data.csv")
     parser.add_argument("--chunk_size", type=int, default=500, help="Spatial points per chunk")
     parser.add_argument(
         "--max_spatial",
