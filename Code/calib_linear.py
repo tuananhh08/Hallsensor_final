@@ -8,20 +8,20 @@ from scipy.optimize import lsq_linear
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6") #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6") #WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"   #tọa độ sensors gốc
 
-ROBOT_POSE_PATH = BASE_DIR / "grid_points_coordinates.csv"
+ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
 
-VOLTAGE_DATA_PATH = BASE_DIR / "grid_data.csv"
+VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
 
 OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
 
 # ---- outputs for the 2-stage calibration framework ----
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_new2.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_new2.csv"
+PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_new.csv"
+ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
 
 
 # =============================================================================
@@ -35,18 +35,20 @@ MU0_OVER_4PI = 1e-7
 # 240 of them go to Stage 1 (physical parameter fit), the remaining 160 go
 # to Stage 2 (alpha(h) fit). No height-based stratification is done anymore
 # -- both stages just see a random cross-section of the working volume.
-N_TOTAL_CALIB_SAMPLES = 400
-N_STAGE1_SAMPLES = 200
+N_TOTAL_CALIB_SAMPLES = 600
+N_STAGE1_SAMPLES = 300
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 200
 
 # ----  Stage 1 regularization weights (physical priors)  ----
 # These penalize deviation from the design/nominal sensor pose so the
 # optimizer only moves a parameter away from its nominal value when the
-# voltage data actually demands it. Offset is intentionally NOT regularized.
+# voltage data actually demands it.  Offset is pulled toward the independent
+# per-sensor measurement in Offset_Sens.csv.
 # NOTE: theta/phi (orientation) removed entirely -- sensor direction is
 # fixed to straight-up [0, 0, 1], so there is no orientation prior/lambda.
-LAMBDA_POS = 2000    # position prior weight (x, y, z)   [1/m^2 scale]
-LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
+LAMBDA_POS = 1000    # position prior weight (x, y, z)   [1/m^2 scale]
+LAMBDA_GAIN = 9e-3   # gain prior weight                  [1/(V/T)^2 scale]
+LAMBDA_OFFSET = 5000  # offset prior weight                [dimensionless]
 
 # ----  NEW: Stage 2 alpha(h) = c0 + c1*h regularization (ridge priors)  ----
 # alpha(h) replaces the old "one constant alpha per region" correction with
@@ -64,10 +66,10 @@ LAMBDA_GAIN = 2e-3   # gain prior weight                  [1/(V/T)^2 scale]
 # plausible (i.e. doesn't swing wildly if you re-run with a different
 # random 400-point draw).
 
-ALPHA_C0_PRIOR = 0.03   
-ALPHA_C1_PRIOR = 6.77
+ALPHA_C0_PRIOR = 0.2
+ALPHA_C1_PRIOR = 6.7
 LAMBDA_ALPHA_C0 = 1e-3  # ridge weight on c0        [dimensionless]
-LAMBDA_ALPHA_C1 = 1e-3   # ridge weight on c1          [1/m^2 scale]
+LAMBDA_ALPHA_C1 = 1e-5   # ridge weight on c1          [1/m^2 scale]
 
 ALPHA_C0_BOUNDS = (-0.3, 1.3)   # alpha(h=0) = c0 phai trong khoang nay
 ALPHA_C1_BOUNDS = (-10, 10)   # do doc c1 (1/m) phai trong khoang nay
@@ -146,9 +148,27 @@ def load_voltage_data(file_path):
 # =============================================================================
 
 def load_sensor_offsets(file_path):
-    """Load sensor offsets"""
-    df = pd.read_csv(file_path, header=0)
-    offsets = df.iloc[:, 1].values
+    """Load the per-sensor initial offsets, indexed by ``sensor_index``."""
+    df = pd.read_csv(file_path)
+    required_cols = {"sensor_index", "offset_a_V"}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Missing required offset columns: {sorted(missing_cols)}"
+        )
+    if df["sensor_index"].duplicated().any():
+        raise ValueError("Offset_Sens.csv contains duplicate sensor_index values")
+
+    # Use sensor_index explicitly rather than the CSV row order, so each
+    # sensor receives its own offset_a_V even if the file is re-sorted.
+    offsets_by_index = df.set_index("sensor_index")["offset_a_V"]
+    expected_indices = np.arange(64)
+    missing_indices = np.setdiff1d(expected_indices, offsets_by_index.index)
+    if len(missing_indices):
+        raise ValueError(
+            f"Offset_Sens.csv is missing sensor_index values: {missing_indices.tolist()}"
+        )
+    offsets = offsets_by_index.loc[expected_indices].to_numpy(dtype=float)
     print(f"Loaded offsets: {offsets.shape}")
     return offsets
 
@@ -158,12 +178,13 @@ def load_sensor_offsets(file_path):
 # =============================================================================
 
 def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
-                      pos_prior=None, g0=7.5,
-                      lambda_pos=LAMBDA_POS, lambda_gain=LAMBDA_GAIN):
+                      pos_prior=None, offset_prior=None, g0=7.5,
+                      lambda_pos=LAMBDA_POS, lambda_gain=LAMBDA_GAIN,
+                      lambda_offset=LAMBDA_OFFSET):
     """
     Calculate residuals between measured and predicted voltages, PLUS
-    regularization residuals that pull (x,y,z,gain) toward their
-    nominal/physical prior values. Offset 'a' is left unregularized.
+    regularization residuals that pull (x,y,z,a,gain) toward their
+    nominal/physical prior values.
 
     params: [x, y, z, a, g]
     Sensor direction is FIXED to straight up [0, 0, 1] -- theta/phi are no
@@ -174,6 +195,8 @@ def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
                Hall_sensor_positions.csv (design position). If None, no
                position regularization terms are appended (kept for safety;
                in normal use this is always provided by the caller).
+    offset_prior: nominal offset a0 (V), read per sensor from
+                  Offset_Sens.csv.  If None, no offset prior is appended.
     """
     x, y, z, a, g = params
 
@@ -215,7 +238,12 @@ def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
 
     r_gain = np.sqrt(lambda_gain) * np.array([g - g0])
 
-    residual = np.concatenate([r_voltage, r_pos, r_gain])
+    if offset_prior is not None:
+        r_offset = np.sqrt(lambda_offset) * np.array([a - offset_prior])
+    else:
+        r_offset = np.array([])
+
+    residual = np.concatenate([r_voltage, r_pos, r_offset, r_gain])
 
     return residual
 
@@ -230,17 +258,15 @@ def calibrate_single_sensor(
         robot_positions,
         m_world,
         voltage_sensor,
-        offset_init=1.618):
+        offset_init):
     """
     Calibrate a single sensor -- position + offset + gain only.
     Sensor direction is fixed straight up (perpendicular to PCB);
-    theta/phi are no longer free parameters.
     """
     # ----------------------------------------------------
     # INITIAL VALUES
     # ----------------------------------------------------
     g0 = 7.5  # Initial gain (V/T)
-    offset_init = 1.618         # a (offset)
 
     # ----------------------------------------------------
     # INITIAL PARAMETERS
@@ -256,20 +282,20 @@ def calibrate_single_sensor(
     # ----------------------------------------------------
     # BOUNDS
     # ----------------------------------------------------
-    pos_tol = 0.0013  # 1.5mm tolerance for sensor position
+    pos_tol = 0.001  # 1mm tolerance for sensor position
     lower = [
         sensor_pos_init[0] - pos_tol,    # x min
         sensor_pos_init[1] - pos_tol,    # y min
         sensor_pos_init[2] - pos_tol,    # z min
-        offset_init - 0.02,             # a min (15mV)
-        6.9                               # g min
+        offset_init - 0.00012,             # a min (0.12mV)
+        7                               # g min
     ]
 
     upper = [
         sensor_pos_init[0] + pos_tol,    # x max
         sensor_pos_init[1] + pos_tol,    # y max
         sensor_pos_init[2] + pos_tol,    # z max
-        offset_init + 0.02,             # a max (15mV)
+        offset_init + 0.00012,             # a max (0.12mV)
         8                                # g max
     ]
 
@@ -287,6 +313,7 @@ def calibrate_single_sensor(
         ),
         kwargs=dict(
             pos_prior=(sensor_pos_init[0], sensor_pos_init[1], sensor_pos_init[2]),
+            offset_prior=offset_init,
             g0=g0,
         ),
         method='trf',
@@ -319,7 +346,7 @@ def calibrate_single_sensor(
 
     # ----------------------------------------------------
     # CALCULATE RMSE
-    # (result.fun = [voltage residuals, pos reg, gain reg];
+    # (result.fun = [voltage residuals, pos reg, offset reg, gain reg];
     #  RMSE must be computed from the voltage part only, so it still
     #  means "V measured vs V predicted" and stays comparable to before)
     # ----------------------------------------------------
@@ -348,6 +375,10 @@ def run_calibration(
     Calibrate all sensors
     """
     n_sensors = sensor_positions.shape[0]
+    if len(offsets) != n_sensors:
+        raise ValueError(
+            f"Expected {n_sensors} per-sensor offsets, received {len(offsets)}"
+        )
     results = []
     rmses = []
 
@@ -357,7 +388,8 @@ def run_calibration(
             sensor_pos_init=sensor_positions[i],
             robot_positions=robot_positions,
             m_world=m_world,
-            voltage_sensor=voltage_data[:, i]
+            voltage_sensor=voltage_data[:, i],
+            offset_init=offsets[i]
         )
 
         results.append(params)

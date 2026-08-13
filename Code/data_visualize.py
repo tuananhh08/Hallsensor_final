@@ -8,7 +8,9 @@ import pandas as pd
 
 EXPECTED_SENSOR_COUNT = 64
 
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+
 INPUT_CSV = BASE_DIR / "Grid_data.csv"
 OUTPUT_DIR = BASE_DIR / "outputs" / "sensor_voltage_plots"
 

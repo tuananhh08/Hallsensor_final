@@ -19,16 +19,16 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 # ─────────────────────────────────────────────
 # CẤU HÌNH
 # ─────────────────────────────────────────────
-BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6" #WINDOWS
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
+# BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6" #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
 
 
 FILES = {
     "sensors": {
-        "filename": "Hall_sensor_positions_moi.csv",
+        "filename": "Hall_sensor_positions.csv",
         "color":    "#14b055",
         "marker":   "o",
-        "size":     30,
+        "size":     35,
         "alpha":    0.9,
         "label":    "sensors points",
         "zorder":   5,
@@ -37,20 +37,20 @@ FILES = {
         "filename": "Helix_points_coordinates_2.csv",
         "color":    "#EC7438",
         "marker":   "s",
-        "size":     30,
+        "size":     36,
         "alpha":    0.9,
         "label":    "Helix Points",
         "zorder":   2,
-    }
-    # "grid_points": {
-    #     "filename": "synthetic_grid_coordinates.csv",
-    #     "color":    "#3498db",
-    #     "marker":   "d",
-    #     "size":     35,
-    #     "alpha":    0.7,
-    #     "label":    "Grid Points",
-    #     "zorder":   4,
-    #  }
+    },
+    "grid_points": {
+        "filename": "Grid_points_coordinates.csv",
+        "color":    "#3498db",
+        "marker":   "d",
+        "size":     35,
+        "alpha":    0.7,
+        "label":    "Grid Points",
+        "zorder":   4,
+     }
 }
 
 # ─────────────────────────────────────────────
