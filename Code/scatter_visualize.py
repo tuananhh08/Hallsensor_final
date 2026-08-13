@@ -24,33 +24,33 @@ BASE_DIR = r"D:\Downloads\Hallsensor_final\Data set 18.6" #WINDOWS
 
 
 FILES = {
-    "grid": {
-        "filename": "Hall_sensor_positions.csv",
+    "sensors": {
+        "filename": "Hall_sensor_positions_moi.csv",
         "color":    "#14b055",
         "marker":   "o",
         "size":     30,
         "alpha":    0.9,
-        "label":    "grid points",
+        "label":    "sensors points",
         "zorder":   5,
     },
     "helix": {
-        "filename": "grid_points_coordinates.csv",
+        "filename": "Helix_points_coordinates_2.csv",
         "color":    "#EC7438",
         "marker":   "s",
         "size":     30,
         "alpha":    0.9,
         "label":    "Helix Points",
         "zorder":   2,
-    },
-    "grid_points": {
-        "filename": "synthetic_grid_coordinates.csv",
-        "color":    "#3498db",
-        "marker":   "d",
-        "size":     35,
-        "alpha":    0.7,
-        "label":    "Grid Points",
-        "zorder":   4,
-     }
+    }
+    # "grid_points": {
+    #     "filename": "synthetic_grid_coordinates.csv",
+    #     "color":    "#3498db",
+    #     "marker":   "d",
+    #     "size":     35,
+    #     "alpha":    0.7,
+    #     "label":    "Grid Points",
+    #     "zorder":   4,
+    #  }
 }
 
 # ─────────────────────────────────────────────

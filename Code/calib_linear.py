@@ -8,7 +8,7 @@ from scipy.optimize import lsq_linear
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
+# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data set 18.6") #MAC
 BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6") #WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"   #tọa độ sensors gốc
