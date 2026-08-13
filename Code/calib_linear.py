@@ -17,8 +17,6 @@ ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
 
 VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
 
-OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
-
 # ---- outputs for the 2-stage calibration framework ----
 PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_new.csv"
 ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
@@ -42,13 +40,17 @@ N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 200
 # ----  Stage 1 regularization weights (physical priors)  ----
 # These penalize deviation from the design/nominal sensor pose so the
 # optimizer only moves a parameter away from its nominal value when the
-# voltage data actually demands it.  Offset is pulled toward the independent
-# per-sensor measurement in Offset_Sens.csv.
+# voltage data actually demands it. Offset is pulled toward one shared
+# nominal initial value.
 # NOTE: theta/phi (orientation) removed entirely -- sensor direction is
 # fixed to straight-up [0, 0, 1], so there is no orientation prior/lambda.
-LAMBDA_POS = 1000    # position prior weight (x, y, z)   [1/m^2 scale]
+LAMBDA_POS = 2000    # position prior weight (x, y, z)   [1/m^2 scale]
 LAMBDA_GAIN = 9e-3   # gain prior weight                  [1/(V/T)^2 scale]
-LAMBDA_OFFSET = 5000  # offset prior weight                [dimensionless]
+LAMBDA_OFFSET = 0  # offset prior weight                [dimensionless]
+
+# Shared Stage-1 initial value and prior for offset a (V), applied to all
+# sensors.  Change this one value to change the common initial offset.
+OFFSET_INIT = 1.6
 
 # ----  NEW: Stage 2 alpha(h) = c0 + c1*h regularization (ridge priors)  ----
 # alpha(h) replaces the old "one constant alpha per region" correction with
@@ -144,36 +146,6 @@ def load_voltage_data(file_path):
 
 
 # =============================================================================
-# LOAD OFFSET FILE
-# =============================================================================
-
-def load_sensor_offsets(file_path):
-    """Load the per-sensor initial offsets, indexed by ``sensor_index``."""
-    df = pd.read_csv(file_path)
-    required_cols = {"sensor_index", "offset_a_V"}
-    missing_cols = required_cols - set(df.columns)
-    if missing_cols:
-        raise ValueError(
-            f"Missing required offset columns: {sorted(missing_cols)}"
-        )
-    if df["sensor_index"].duplicated().any():
-        raise ValueError("Offset_Sens.csv contains duplicate sensor_index values")
-
-    # Use sensor_index explicitly rather than the CSV row order, so each
-    # sensor receives its own offset_a_V even if the file is re-sorted.
-    offsets_by_index = df.set_index("sensor_index")["offset_a_V"]
-    expected_indices = np.arange(64)
-    missing_indices = np.setdiff1d(expected_indices, offsets_by_index.index)
-    if len(missing_indices):
-        raise ValueError(
-            f"Offset_Sens.csv is missing sensor_index values: {missing_indices.tolist()}"
-        )
-    offsets = offsets_by_index.loc[expected_indices].to_numpy(dtype=float)
-    print(f"Loaded offsets: {offsets.shape}")
-    return offsets
-
-
-# =============================================================================
 # RESIDUAL FUNCTION  
 # =============================================================================
 
@@ -195,8 +167,8 @@ def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
                Hall_sensor_positions.csv (design position). If None, no
                position regularization terms are appended (kept for safety;
                in normal use this is always provided by the caller).
-    offset_prior: nominal offset a0 (V), read per sensor from
-                  Offset_Sens.csv.  If None, no offset prior is appended.
+    offset_prior: shared nominal offset a0 (V). If None, no offset prior is
+                  appended.
     """
     x, y, z, a, g = params
 
@@ -287,7 +259,7 @@ def calibrate_single_sensor(
         sensor_pos_init[0] - pos_tol,    # x min
         sensor_pos_init[1] - pos_tol,    # y min
         sensor_pos_init[2] - pos_tol,    # z min
-        offset_init - 0.00012,             # a min (0.12mV)
+        offset_init - 0.05,             # a min (0.12mV)
         7                               # g min
     ]
 
@@ -295,7 +267,7 @@ def calibrate_single_sensor(
         sensor_pos_init[0] + pos_tol,    # x max
         sensor_pos_init[1] + pos_tol,    # y max
         sensor_pos_init[2] + pos_tol,    # z max
-        offset_init + 0.00012,             # a max (0.12mV)
+        offset_init + 0.05,             # a max (0.12mV)
         8                                # g max
     ]
 
@@ -367,18 +339,14 @@ def calibrate_single_sensor(
 
 def run_calibration(
         sensor_positions,
-        offsets,
         robot_positions,
         m_world,
-        voltage_data):
+        voltage_data,
+        offset_init):
     """
     Calibrate all sensors
     """
     n_sensors = sensor_positions.shape[0]
-    if len(offsets) != n_sensors:
-        raise ValueError(
-            f"Expected {n_sensors} per-sensor offsets, received {len(offsets)}"
-        )
     results = []
     rmses = []
 
@@ -389,7 +357,7 @@ def run_calibration(
             robot_positions=robot_positions,
             m_world=m_world,
             voltage_sensor=voltage_data[:, i],
-            offset_init=offsets[i]
+            offset_init=offset_init
         )
 
         results.append(params)
@@ -637,7 +605,6 @@ def main():
     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
-    offsets = load_sensor_offsets(OFFSET_FILE_PATH)
 
     # Ensure consistent number of samples
     n_samples = min(len(robot_positions), len(voltage_data))
@@ -663,7 +630,7 @@ def main():
     print("STAGE 1: PHYSICAL PARAMETER FIT (240 points)")
     print("===================================")
     results, rmses = run_calibration(
-        sensor_positions, offsets, rp1, mw1, vd1
+        sensor_positions, rp1, mw1, vd1, offset_init=OFFSET_INIT
     )
 
     print("\n========================")
