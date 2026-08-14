@@ -8,15 +8,20 @@ from pathlib import Path
 # =============================================================================
 # FILE PATHS  
 # =============================================================================
-BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
-# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6") #WINDOWS
+# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
 ALPHA_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
+
 VOLTAGE_PATH = BASE_DIR / "Grid_data.csv"
 COORDS_PATH = BASE_DIR / "Grid_points_coordinates.csv"
+OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
 
-OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new2"
+# VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
+# COORDS_PATH = BASE_DIR / "Helix_points_coordinates_2.csv"
+# OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new2"
+
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 RMSE_SUMMARY_PATH = BASE_DIR / "outputs/rmse_summary_new.csv"
@@ -154,8 +159,7 @@ def main():
         # ---- Plot ----
         fig, ax = plt.subplots(figsize=(10, 4))
         ax.plot(sample_idx, v_meas, label="V measured", linewidth=1.0)
-        ax.plot(sample_idx, v_pred, label="V computed",
-                linewidth=1.0, linestyle="--")
+        ax.plot(sample_idx, v_pred, label="V computed",linewidth=1.0)
         ax.set_xlabel("Sample index")
         ax.set_ylabel("Voltage (V)")
         ax.set_title(f"Sensor {s+1:02d} | RMSE = {rmse_s:.6f} V")

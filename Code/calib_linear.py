@@ -8,14 +8,15 @@ from scipy.optimize import lsq_linear
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
-# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data set 18.6") #WINDOWS
+# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"   #tọa độ sensors gốc
 
 ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
 
 VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
+OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
 
 # ---- outputs for the 2-stage calibration framework ----
 PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_new.csv"
@@ -40,17 +41,13 @@ N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 200
 # ----  Stage 1 regularization weights (physical priors)  ----
 # These penalize deviation from the design/nominal sensor pose so the
 # optimizer only moves a parameter away from its nominal value when the
-# voltage data actually demands it. Offset is pulled toward one shared
-# nominal initial value.
+# voltage data actually demands it. Offset is pulled toward its per-sensor
+# initial value loaded from Offset_Sens.csv.
 # NOTE: theta/phi (orientation) removed entirely -- sensor direction is
 # fixed to straight-up [0, 0, 1], so there is no orientation prior/lambda.
 LAMBDA_POS = 2000    # position prior weight (x, y, z)   [1/m^2 scale]
 LAMBDA_GAIN = 9e-3   # gain prior weight                  [1/(V/T)^2 scale]
-LAMBDA_OFFSET = 0  # offset prior weight                [dimensionless]
-
-# Shared Stage-1 initial value and prior for offset a (V), applied to all
-# sensors.  Change this one value to change the common initial offset.
-OFFSET_INIT = 1.6
+LAMBDA_OFFSET = 750  # offset prior weight                [dimensionless]
 
 # ----  NEW: Stage 2 alpha(h) = c0 + c1*h regularization (ridge priors)  ----
 # alpha(h) replaces the old "one constant alpha per region" correction with
@@ -143,6 +140,36 @@ def load_voltage_data(file_path):
     voltage = df.values
     print(f"Loaded voltage data: {voltage.shape}")
     return voltage
+
+
+def load_offset_initial_values(file_path, n_sensors):
+    """Load one initial offset (V) per sensor from Offset_Sens.csv."""
+    df = pd.read_csv(file_path)
+    required_columns = {"sensor_index", "offset_a_V"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Missing column(s) in {file_path.name}: {sorted(missing_columns)}"
+        )
+
+    if df["sensor_index"].duplicated().any():
+        raise ValueError("Offset_Sens.csv contains duplicate sensor_index values.")
+
+    df = df.sort_values("sensor_index").reset_index(drop=True)
+    expected_indices = np.arange(n_sensors)
+    actual_indices = df["sensor_index"].to_numpy()
+    if not np.array_equal(actual_indices, expected_indices):
+        raise ValueError(
+            "Offset_Sens.csv must contain exactly sensor_index values "
+            f"0 to {n_sensors - 1}."
+        )
+
+    offset_initial_values = df["offset_a_V"].to_numpy(dtype=float)
+    if not np.isfinite(offset_initial_values).all():
+        raise ValueError("Column offset_a_V contains missing or non-finite values.")
+
+    print(f"Loaded per-sensor offset initial values: {offset_initial_values.shape}")
+    return offset_initial_values
 
 
 # =============================================================================
@@ -259,7 +286,7 @@ def calibrate_single_sensor(
         sensor_pos_init[0] - pos_tol,    # x min
         sensor_pos_init[1] - pos_tol,    # y min
         sensor_pos_init[2] - pos_tol,    # z min
-        offset_init - 0.05,             # a min (0.12mV)
+        offset_init - 0.0011,             # a min (0.12mV)
         7                               # g min
     ]
 
@@ -267,7 +294,7 @@ def calibrate_single_sensor(
         sensor_pos_init[0] + pos_tol,    # x max
         sensor_pos_init[1] + pos_tol,    # y max
         sensor_pos_init[2] + pos_tol,    # z max
-        offset_init + 0.05,             # a max (0.12mV)
+        offset_init + 0.0011,             # a max (0.12mV)
         8                                # g max
     ]
 
@@ -342,11 +369,15 @@ def run_calibration(
         robot_positions,
         m_world,
         voltage_data,
-        offset_init):
+        offset_initial_values):
     """
     Calibrate all sensors
     """
     n_sensors = sensor_positions.shape[0]
+    if len(offset_initial_values) != n_sensors:
+        raise ValueError(
+            f"Expected {n_sensors} initial offsets, got {len(offset_initial_values)}."
+        )
     results = []
     rmses = []
 
@@ -357,7 +388,7 @@ def run_calibration(
             robot_positions=robot_positions,
             m_world=m_world,
             voltage_sensor=voltage_data[:, i],
-            offset_init=offset_init
+            offset_init=offset_initial_values[i]
         )
 
         results.append(params)
@@ -605,6 +636,9 @@ def main():
     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
     robot_positions, m_world = load_robot_pose(ROBOT_POSE_PATH)
     voltage_data = load_voltage_data(VOLTAGE_DATA_PATH)
+    offset_initial_values = load_offset_initial_values(
+        OFFSET_INIT_PATH, n_sensors=sensor_positions.shape[0]
+    )
 
     # Ensure consistent number of samples
     n_samples = min(len(robot_positions), len(voltage_data))
@@ -630,7 +664,8 @@ def main():
     print("STAGE 1: PHYSICAL PARAMETER FIT (240 points)")
     print("===================================")
     results, rmses = run_calibration(
-        sensor_positions, rp1, mw1, vd1, offset_init=OFFSET_INIT
+        sensor_positions, rp1, mw1, vd1,
+        offset_initial_values=offset_initial_values,
     )
 
     print("\n========================")

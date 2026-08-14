@@ -34,18 +34,24 @@ VOLT_COLUMNS = [f"sensor_{i + 1}" for i in range(NUM_SENSORS)]
 @dataclass
 class ROIConfig:
     x_min: float = -0.045
-    x_max: float = 0.11
-    y_min: float = 0.63
-    y_max: float = 0.78
-    z_min: float = -0.0936
-    z_max: float = -0.0436
-    num_xy: int = 9 # -> 21, step hien tai la 15.5 mm
-    num_z: int = 12  # -> 16, step hien tai la 4.5 mm
-    pitch_min: float = -40.0
-    pitch_max: float = 40.0
-    yaw_min: float = -40.0
-    yaw_max: float = 40.0
-    num_angles: int = 11 # -> 16, step hien tai la 6.67 deg
+    x_max: float = 0.095
+    
+    y_min: float = 0.635
+    y_max: float = 0.775
+    
+    z_min: float = -0.0635
+    z_max: float = -0.0335
+    
+    num_xy: int = 9 # -> 21, step hien tai la 17.5 mm
+    num_z: int = 10  # -> 16, step hien tai la 3.3 mm
+    
+    pitch_min: float = -20.0
+    pitch_max: float = 20.0
+    
+    yaw_min: float = -20.0
+    yaw_max: float = 20.0
+    
+    num_angles: int = 11 
 
     @property
     def num_spatial(self) -> int:
@@ -250,7 +256,7 @@ def validate_outputs(
 
 def parse_args() -> argparse.Namespace:
     script_dir = Path(__file__).resolve().parent
-    default_data_dir = script_dir.parent / "Data set 18.6"
+    default_data_dir = script_dir.parent / "Data_8_2026"
 
     parser = argparse.ArgumentParser(description="Generate synthetic grid data for train_mvec.py")
     parser.add_argument("--data_dir", type=Path, default=default_data_dir)
