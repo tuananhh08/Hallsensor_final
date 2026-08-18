@@ -78,7 +78,7 @@ def main():
         args.lambda_pos = trial.suggest_float("lambda_pos", 0.1, 3.0, log=True)
         args.lambda_physics = trial.suggest_float("lambda_physics", 1e-4, 1e-2, log=True)
         args.physics_delta = trial.suggest_float("physics_delta", 1e-4, 1e-2, log=True)
-        batch_size = trial.suggest_categorical("batch_size", [256, 512, 1024, 2048])
+        batch_size = trial.suggest_categorical("batch_size", [1024, 2048, 4096])
         train_loader, val_loader = make_loaders(train_ds, val_ds, batch_size, args.num_workers,
                                                 device, args.prefetch_factor)
         model = Model(out_dim=6).to(device)
