@@ -43,7 +43,7 @@ FILES = {
         "zorder":   2,
     },
     "grid_points": {
-        "filename": "Grid_points_coordinates.csv",
+        "filename": "synthetic_grid_coordinates2.csv",
         "color":    "#3498db",
         "marker":   "d",
         "size":     35,

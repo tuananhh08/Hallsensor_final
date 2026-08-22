@@ -128,3 +128,4 @@ class HuberPoseLoss(nn.Module):
                + self.ang_weight     * loss_ang
                + self.lambda_physics * loss_physics)
         return total, loss_xyz, loss_ang
+    

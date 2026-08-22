@@ -1,9 +1,3 @@
-"""Compute calibrated Hall-sensor voltages from pose coordinates.
-
-The forward model is identical to ``Compare_visualize.py``:
-
-    V = offset + gain * Bz_dipole * (c0 + c1 * (z_pose - z_sensor))
-"""
 from __future__ import annotations
 
 import argparse
@@ -17,17 +11,22 @@ NUM_SENSORS = 64
 
 
 def parse_args():
-    base_data_dir = Path(__file__).resolve().parent.parent / "Data set 18.6"
+    data_dir = Path(__file__).resolve().parent.parent / "Data_8_2026"
     parser = argparse.ArgumentParser(
-        description="Compute 64 calibrated Hall voltages from x,y,z,mx,my,mz pose CSV data.")
-    parser.add_argument("--input", required=True,
-                        help="Input pose CSV with columns: x,y,z,mx,my,mz")
-    parser.add_argument("--out", required=True,
-                        help="Output voltage CSV (Header: sensor_1,...,sensor_64)")
+        description=("Compute Hall voltages using V = offset + alpha(h) * gain * Bz. "
+                     "The default files are the Helix trajectory and its calibrations."))
+    parser.add_argument("--input", type=Path,
+                        default=data_dir / "Lissajous_points_coordinates.csv",
+                        help="Input pose CSV with columns x,y,z,mx,my,mz")
+    parser.add_argument("--out", type=Path,
+                        default=data_dir / "Lissajous_data_computed.csv",
+                        help="Output voltage CSV with columns sensor_1,...,sensor_64")
     parser.add_argument("--calib_physical_csv", type=Path,
-                        default=base_data_dir / "Calibration_Physical_new.csv")
+                        default=data_dir / "Calibration_Physical_new.csv",
+                        help="Physical calibration CSV (sensor positions, offset, gain)")
     parser.add_argument("--calib_alpha_csv", type=Path,
-                        default=base_data_dir / "Calibration_Alpha_new.csv")
+                        default=data_dir / "Calibration_Alpha_new.csv",
+                        help="Alpha calibration CSV containing c0 and c1")
     parser.add_argument("--chunksize", type=int, default=1000,
                         help="Rows processed at once; use 0 to load all rows")
     return parser.parse_args()
@@ -68,7 +67,8 @@ def compute_voltage(positions, moments, sensor_pos, offset, gain, c0, c1):
 
     r_vec = sensor_pos[None, :, :] - positions[:, None, :]       # (N,64,3)
     r_norm = np.linalg.norm(r_vec, axis=2, keepdims=True)
-    r_norm = np.maximum(r_norm, 1e-4)                              # prevent singularity
+    if np.any(r_norm <= 1e-12):
+        raise ValueError("A magnet position coincides with a sensor position")
     m_dot_r = np.sum(moments[:, None, :] * r_vec, axis=2, keepdims=True)
     b_vec = MU0_OVER_4PI * (
         3.0 * m_dot_r * r_vec / r_norm**5 - moments[:, None, :] / r_norm**3)
@@ -94,7 +94,9 @@ def main():
     args = parse_args()
     if args.chunksize < 0:
         raise ValueError("chunksize must be >= 0")
-    input_path, output_path = Path(args.input), Path(args.out)
+    input_path, output_path = args.input, args.out
+    if not input_path.is_file():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     sensor_pos, offset, gain, c0, c1 = load_calibration(args.calib_physical_csv, args.calib_alpha_csv)
     columns = [f"sensor_{index}" for index in range(1, NUM_SENSORS + 1)]
@@ -107,7 +109,7 @@ def main():
         positions, moments = pose_arrays(frame)
         voltage = compute_voltage(positions, moments, sensor_pos, offset, gain, c0, c1)
         pd.DataFrame(voltage, columns=columns).to_csv(output_path, mode="w" if first else "a",
-                                                        header=first, index=False)
+                                                        header=first, index=False,float_format="%.5f")
         n_rows += len(frame)
         first = False
 

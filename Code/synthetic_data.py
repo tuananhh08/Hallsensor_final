@@ -42,8 +42,8 @@ class ROIConfig:
     z_min: float = -0.0635
     z_max: float = -0.0335
     
-    num_xy: int = 9 # -> 21, step hien tai la 17.5 mm
-    num_z: int = 10  # -> 16, step hien tai la 3.3 mm
+    num_xy: int = 16 # -> 21, step hien tai la 17.5 mm
+    num_z: int = 12  # -> 16, step hien tai la 3.3 mm
     
     pitch_min: float = -20.0
     pitch_max: float = 20.0
@@ -51,7 +51,7 @@ class ROIConfig:
     yaw_min: float = -20.0
     yaw_max: float = 20.0
     
-    num_angles: int = 11 
+    num_angles: int = 15 
 
     @property
     def num_spatial(self) -> int:
@@ -207,8 +207,15 @@ def write_voltage_chunk(
     *,
     write_header: bool,
 ) -> None:
+    """Write voltages rounded and formatted to four decimal places."""
     df = pd.DataFrame(voltages, columns=VOLT_COLUMNS)
-    df.to_csv(path, mode="w" if write_header else "a", header=write_header, index=False)
+    df.to_csv(
+        path,
+        mode="w" if write_header else "a",
+        header=write_header,
+        index=False,
+        float_format="%.5f",
+    )
 
 
 def expand_spatial_chunk(
@@ -262,8 +269,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data_dir", type=Path, default=default_data_dir)
     parser.add_argument("--calib_physical", type=str, default="Calibration_Physical_new.csv")
     parser.add_argument("--calib_alpha", type=str, default="Calibration_Alpha_new.csv")
-    parser.add_argument("--out_coord", type=str, default="synthetic_grid_coordinates.csv")
-    parser.add_argument("--out_volt", type=str, default="synthetic_grid_data.csv")
+    parser.add_argument("--out_coord", type=str, default="synthetic_grid_coordinates2.csv")
+    parser.add_argument("--out_volt", type=str, default="synthetic_grid_data2.csv")
     parser.add_argument("--chunk_size", type=int, default=500, help="Spatial points per chunk")
     parser.add_argument(
         "--max_spatial",

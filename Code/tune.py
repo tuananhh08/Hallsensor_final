@@ -16,8 +16,8 @@ p.add_argument("--VOLTAGE",    type=str, default="/content/drive/MyDrive/Dataset
 p.add_argument("--LABEL",      type=str, default="/content/drive/MyDrive/Dataset/Grid_points_coordinates.csv")
 p.add_argument("--calib_csv", type=str, default="Calibration_GRID_NEW_PARAM_results.csv",
                help="Path to Calibration_GRID_NEW_PARAM_results.csv")
-p.add_argument("--n_trials",   type=int, default=50)
-p.add_argument("--max_epochs", type=int, default=200)
+p.add_argument("--n_trials",   type=int, default=5)
+p.add_argument("--max_epochs", type=int, default=20)
 p.add_argument("--warmup_epochs", type=int, default=5,
                help="Warmup epochs")
 

@@ -8,14 +8,14 @@ from pathlib import Path
 # =============================================================================
 # FILE PATHS  
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
 ALPHA_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
 
-VOLTAGE_PATH = BASE_DIR / "Grid_data.csv"
-COORDS_PATH = BASE_DIR / "Grid_points_coordinates.csv"
+VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
+COORDS_PATH = BASE_DIR / "Helix_points_coordinates_2.csv"
 OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
 
 # VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
