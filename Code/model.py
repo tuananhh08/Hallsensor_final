@@ -159,7 +159,7 @@ class Stage1(nn.Module):
             nn.SiLU(inplace=True),
         )
         self.bn_out = nn.BatchNorm2d(out_ch)
-
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = torch.cat([self.branch1(x), self.branch2(x), self.branch3(x)], dim=1)
         return self.bn_out(out) 
