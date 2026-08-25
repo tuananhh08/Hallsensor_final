@@ -1,103 +1,313 @@
-"""Three-phase training entry point for ModNet + magnetic localization."""
+"""Train ModNet and the magnetic-localization network in three compatible phases.
+
+The cache stores scaled 8x8 tensors as NPY memmaps.  One scaler is fitted only
+on training rows and is then reused unchanged by all phases and inference.
+"""
 from __future__ import annotations
-import argparse, os, pickle, random
+
+import argparse
+import json
+import os
+import pickle
+import platform
+import random
+import time
 from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from data_mvec import StreamingMinMaxScaler, PosLabelScaler
+from torch.utils.data import Dataset
+
+from data_mvec import PosLabelScaler, StreamingMinMaxScaler
 from loss_mvec import HuberPoseLossMVec
 from model import Model
+from training_loop import default_num_workers, make_loaders
 
-def parser():
-    p=argparse.ArgumentParser(description=__doc__); root=Path(__file__).resolve().parent.parent/"Dataset"/"Dataset"
-    p.add_argument("--phase",choices=("modnet","locnet","finetune"),required=True)
-    p.add_argument("--noisy-voltage",default=str(root/"Grid_data.csv")); p.add_argument("--clean-voltage",default=str(root/"Grid_data_computed.csv")); p.add_argument("--noisy-label",default=str(root/"Grid_points_coordinates.csv"))
-    p.add_argument("--synthetic-voltage",default=str(root/"synthetic_grid_data.csv")); p.add_argument("--synthetic-label",default=str(root/"synthetic_grid_coordinates.csv")); p.add_argument("--ckpt-dir",default="./ckpt_mvec"); p.add_argument("--scaler-file")
-    p.add_argument("--modnet-checkpoint"); p.add_argument("--locnet-checkpoint"); p.add_argument("--resume")
-    p.add_argument("--batch-size",type=int,default=64); p.add_argument("--epochs",type=int,default=200); p.add_argument("--lr-modnet",type=float,default=2e-4); p.add_argument("--lr-locnet",type=float,default=1e-3); p.add_argument("--weight-decay",type=float,default=4.56e-3); p.add_argument("--lambda-mod",type=float,default=.1); p.add_argument("--mod-delta",type=float,default=.05)
-    p.add_argument("--lambda-ori",type=float,default=1.); p.add_argument("--delta-xyz",type=float,default=.061); p.add_argument("--lambda-pos",type=float,default=1.); p.add_argument("--lambda-physics",type=float,default=1e-4); p.add_argument("--physics-delta",type=float,default=.002)
-    p.add_argument("--calib-physical-csv",default=str(root/"Calibration_Physical_new.csv")); p.add_argument("--calib-alpha-csv",default=str(root/"Calibration_Alpha_new.csv")); p.add_argument("--no-physics",action="store_true"); p.add_argument("--val-ratio",type=float,default=.2); p.add_argument("--seed",type=int,default=42); p.add_argument("--num-workers",type=int,default=0)
-    return p
 
-def read(path,width,what):
-    a=pd.read_csv(path).apply(pd.to_numeric,errors="coerce").to_numpy(np.float32)
-    if a.shape[1]!=width or not np.isfinite(a).all(): raise ValueError(f"{what} must be finite and have {width} columns: {path}")
-    return a
-def poses(a):
-    a=a.copy(); n=np.linalg.norm(a[:,3:],axis=1)
-    if (n<1e-12).any(): raise ValueError("Zero magnetic-moment label")
-    a[:,3:]/=n[:,None]; return a
-def split(n,r,seed):
-    q=np.random.default_rng(seed).permutation(n); nv=max(1,int(n*r)); return q[nv:],q[:nv]
-class DS(Dataset):
-    def __init__(self,*a): self.a=[torch.as_tensor(x,dtype=torch.float32) for x in a]
-    def __len__(self): return len(self.a[0])
-    def __getitem__(self,i): return tuple(x[i] for x in self.a)
-def strip(s): return {k.replace("_orig_mod.",""):v for k,v in s.items()}
-def save_scalers(path,s):
-    with open(path,"wb") as f: pickle.dump(s,f)
-def load_part(module,path,name,device):
-    c=torch.load(path,map_location=device,weights_only=False); s=strip(c.get(name+"_state_dict",c.get("model_state_dict",c.get("model",c))))
-    if name=="locnet" and any(k.startswith("locnet.") for k in s): s={k[7:]:v for k,v in s.items() if k.startswith("locnet.")}
-    missing,unexpected=module.load_state_dict(s,strict=False)
+def get_config():
+    root = Path(__file__).resolve().parent.parent / "Dataset" / "Dataset"
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--phase", choices=("modnet", "locnet", "finetune"), required=True)
+    p.add_argument("--noisy-voltage", default=str(root / "Grid_data.csv"))
+    p.add_argument("--clean-voltage", default=str(root / "Grid_data_computed.csv"))
+    p.add_argument("--noisy-label", default=str(root / "Grid_points_coordinates.csv"))
+    p.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data.csv"))
+    p.add_argument("--synthetic-label", default=str(root / "synthetic_grid_coordinates.csv"))
+    p.add_argument("--calib-physical-csv", default=str(root / "Calibration_Physical_new.csv"))
+    p.add_argument("--calib-alpha-csv", default=str(root / "Calibration_Alpha_new.csv"))
+    p.add_argument("--ckpt-dir", default="./ckpt_mvec")
+    p.add_argument("--cache-dir", default=None)
+    p.add_argument("--rebuild-cache", action="store_true")
+    p.add_argument("--scaler-file", default=None, help="Existing scalers.pkl; never refit it.")
+    p.add_argument("--modnet-checkpoint", default=None)
+    p.add_argument("--locnet-checkpoint", default=None)
+    p.add_argument("--resume", default=None)
+    p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--num-epochs", "--epochs", dest="num_epochs", type=int, default=200)
+    p.add_argument("--lr-modnet", type=float, default=2e-4)
+    p.add_argument("--lr-locnet", type=float, default=1e-3)
+    p.add_argument("--weight-decay", type=float, default=4.56e-3)
+    p.add_argument("--lambda-mod", type=float, default=0.1)
+    p.add_argument("--mod-delta", type=float, default=0.05)
+    p.add_argument("--lambda-ori", type=float, default=1.0)
+    p.add_argument("--delta-xyz", type=float, default=0.061)
+    p.add_argument("--lambda-pos", type=float, default=1.0)
+    p.add_argument("--lambda-physics", type=float, default=1e-4)
+    p.add_argument("--physics-delta", type=float, default=0.002)
+    p.add_argument("--no-physics", action="store_true")
+    p.add_argument("--val-ratio", type=float, default=0.2)
+    p.add_argument("--warmup-epochs", type=int, default=5)
+    p.add_argument("--save-every", type=int, default=5)
+    p.add_argument("--patience", type=int, default=45)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--num-workers", type=int, default=None)
+    p.add_argument("--prefetch-factor", type=int, default=2)
+    p.add_argument("--samples-per-epoch", type=int, default=0)
+    p.add_argument("--benchmark-samples", type=int, default=0,
+                   help="Optional post-training single-sample inference benchmark (0 disables it).")
+    p.add_argument("--compile", action=argparse.BooleanOptionalAction, default=True)
+    return p.parse_args()
+
+
+def _read(path: str, width: int, name: str) -> np.ndarray:
+    frame = pd.read_csv(path).apply(pd.to_numeric, errors="coerce")
+    if frame.shape[1] != width:
+        raise ValueError(f"{name} must have {width} columns, got {frame.shape[1]}: {path}")
+    values = frame.to_numpy(np.float32)
+    if not np.isfinite(values).all():
+        raise ValueError(f"{name} contains non-finite values: {path}")
+    return values
+
+
+def _normalize_mvec(labels: np.ndarray) -> np.ndarray:
+    labels = labels.copy(); norm = np.linalg.norm(labels[:, 3:], axis=1)
+    if (norm < 1e-12).any(): raise ValueError("Pose labels contain a zero magnetic-moment vector")
+    labels[:, 3:] /= norm[:, None]
+    return labels
+
+
+def _source_info(path: str) -> dict:
+    p = Path(path).resolve(); s = p.stat()
+    return {"path": str(p), "size": s.st_size, "mtime_ns": s.st_mtime_ns}
+
+
+def _scaler_signature(scalers: dict) -> dict:
+    return {"volt_min": np.asarray(scalers["volt"].data_min_).round(9).tolist(),
+            "volt_max": np.asarray(scalers["volt"].data_max_).round(9).tolist(),
+            "xyz_mean": np.asarray(scalers["label"].xyz_scaler.mean_).round(9).tolist()}
+
+
+class MultiMemmapDataset(Dataset):
+    """Lazy NPY-backed dataset for (x), (x,y), or (noisy,clean,pose)."""
+    def __init__(self, files: list[Path], indices: np.ndarray):
+        self.files = [str(x) for x in files]; self.indices = np.asarray(indices, dtype=np.int64); self._arrays = None
+    def __len__(self): return len(self.indices)
+    def _open(self):
+        if self._arrays is None: self._arrays = [np.load(p, mmap_mode="r") for p in self.files]
+    def __getitem__(self, i):
+        self._open(); index = self.indices[i]
+        return tuple(torch.from_numpy(a[index].copy()) for a in self._arrays)
+    def __getstate__(self):
+        state = self.__dict__.copy(); state["_arrays"] = None; return state
+
+
+def _save_json(path: Path, data: object):
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def prepare_cache(cfg, cache_dir: Path, scaler_file: str | None):
+    """Fit/reuse scalers and prepare cached noisy, clean, synthetic arrays."""
+    sources = {key: _source_info(value) for key, value in {
+        "noisy": cfg.noisy_voltage, "clean": cfg.clean_voltage, "noisy_label": cfg.noisy_label,
+        "synthetic": cfg.synthetic_voltage, "synthetic_label": cfg.synthetic_label}.items()}
+    cache_dir.mkdir(parents=True, exist_ok=True); manifest_path = cache_dir / "three_phase_manifest.json"
+    external_scalers = scaler_file is not None and Path(scaler_file).is_file()
+    if external_scalers:
+        with open(scaler_file, "rb") as f: scalers = pickle.load(f)
+    else: scalers = None
+    expected = {"version": 1, "sources": sources, "val_ratio": cfg.val_ratio, "seed": cfg.seed,
+                "external_scaler": _scaler_signature(scalers) if scalers else None}
+    arrays = [cache_dir / x for x in ("noisy.npy", "clean.npy", "pose.npy", "synthetic.npy", "synthetic_pose.npy")]
+    index_path = cache_dir / "splits.npz"
+    try:
+        valid = (not cfg.rebuild_cache and json.loads(manifest_path.read_text()) == expected and index_path.is_file()
+                 and all(x.is_file() for x in arrays) and (cache_dir / "scalers.pkl").is_file())
+    except (OSError, json.JSONDecodeError): valid = False
+    if valid:
+        with open(cache_dir / "scalers.pkl", "rb") as f: return [*arrays], np.load(index_path), pickle.load(f)
+
+    noisy, clean = _read(cfg.noisy_voltage, 64, "Noisy voltage"), _read(cfg.clean_voltage, 64, "Clean voltage")
+    pose = _normalize_mvec(_read(cfg.noisy_label, 6, "Noisy pose labels"))
+    synth, synth_pose = _read(cfg.synthetic_voltage, 64, "Synthetic voltage"), _normalize_mvec(_read(cfg.synthetic_label, 6, "Synthetic pose labels"))
+    if not (len(noisy) == len(clean) == len(pose)): raise ValueError("Noisy, clean, and noisy-label CSV row counts must match")
+    if len(synth) != len(synth_pose): raise ValueError("Synthetic voltage/label CSV row counts must match")
+    rng = np.random.default_rng(cfg.seed); ia = rng.permutation(len(noisy)); ib = np.random.default_rng(cfg.seed + 1).permutation(len(synth))
+    na, nb = max(1, int(len(ia) * cfg.val_ratio)), max(1, int(len(ib) * cfg.val_ratio))
+    train_a, val_a, train_b, val_b = ia[na:], ia[:na], ib[nb:], ib[:nb]
+    if scalers is None:
+        volt = StreamingMinMaxScaler((0, 1)); [volt.partial_fit(x) for x in (noisy[train_a], clean[train_a], synth[train_b])]
+        label = PosLabelScaler(); label.partial_fit(np.concatenate((pose[train_a], synth_pose[train_b]), axis=0))
+        scalers = {"volt": volt, "label": label, "label_format": "mvec", "voltage_space": "minmax_[0,1]"}
+    vscale, lscale = scalers["volt"], scalers["label"]
+    scaled = [vscale.transform(x).reshape(-1, 1, 8, 8).astype(np.float32) for x in (noisy, clean, synth)]
+    output = [scaled[0], scaled[1], lscale.transform(pose), scaled[2], lscale.transform(synth_pose)]
+    for path, value in zip(arrays, output): np.save(path, value)
+    np.savez(index_path, train_a=train_a, val_a=val_a, train_b=train_b, val_b=val_b)
+    with open(cache_dir / "scalers.pkl", "wb") as f: pickle.dump(scalers, f)
+    # `external_scaler` is a cache identity only when the caller explicitly
+    # supplied one.  For a locally fitted scaler, its persisted cache copy is
+    # the authoritative object on subsequent runs.
+    _save_json(manifest_path, expected)
+    return arrays, np.load(index_path), scalers
+
+
+def _unwrap(model): return model._orig_mod if hasattr(model, "_orig_mod") else model
+def _strip(state): return {key.replace("_orig_mod.", ""): value for key, value in state.items()}
+
+
+def load_component(module, path, name, device):
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    state = _strip(checkpoint.get(f"{name}_state_dict", checkpoint.get("model_state_dict", checkpoint.get("model", checkpoint))))
+    if name == "locnet" and any(key.startswith("locnet.") for key in state):
+        state = {key[7:]: value for key, value in state.items() if key.startswith("locnet.")}
+    missing, unexpected = module.load_state_dict(state, strict=False)
     if missing or unexpected: print(f"Warning loading {name}: missing={list(missing)}, unexpected={list(unexpected)}")
-    return c
-def save(path,phase,epoch,best,model,opt,sch,scalers,metrics):
-    d={"phase":phase,"epoch":epoch,"best_val":best,"metrics":metrics,"optimizer_state_dict":opt.state_dict(),"scheduler_state_dict":sch.state_dict(),"preprocessing":{"voltage_space":"minmax_[0,1]","sensor_order":"sensor_1..sensor_64 row-major 8x8","scaler_file":"scalers.pkl"},"scaler_metadata":{"volt_data_min":np.asarray(scalers["volt"].data_min_).tolist(),"volt_data_max":np.asarray(scalers["volt"].data_max_).tolist(),"xyz_mean":np.asarray(scalers["label"].xyz_scaler.mean_).tolist(),"xyz_scale":np.asarray(scalers["label"].xyz_scaler.scale_).tolist()}}
-    if phase=="modnet": d["modnet_state_dict"]=model.modnet.state_dict()
-    elif phase=="locnet": d["locnet_state_dict"]=model.locnet.state_dict()
-    else: d.update({"model_state_dict":model.state_dict(),"modnet_state_dict":model.modnet.state_dict(),"locnet_state_dict":model.locnet.state_dict()})
-    torch.save(d,path); save_scalers(Path(path).parent/"scalers.pkl",scalers)
+    return checkpoint
+
+
+def save_checkpoint(path, phase, epoch, model, optimizer, scheduler, best_val, metrics, scalers):
+    model = _unwrap(model)
+    data = {"phase": phase, "epoch": epoch, "best_val": best_val, "metrics": metrics,
+            "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
+            "preprocessing": {"voltage_space": "minmax_[0,1]", "sensor_order": "sensor_1..sensor_64 row-major 8x8", "scaler_file": "scalers.pkl"},
+            "scaler_metadata": _scaler_signature(scalers)}
+    if phase == "modnet": data["modnet_state_dict"] = model.modnet.state_dict()
+    elif phase == "locnet": data["locnet_state_dict"] = model.locnet.state_dict()
+    else: data.update({"model_state_dict": model.state_dict(), "modnet_state_dict": model.modnet.state_dict(), "locnet_state_dict": model.locnet.state_dict()})
+    torch.save(data, path)
+
+
+def append_log(path: Path, entry: dict):
+    try: history = json.loads(path.read_text()) if path.is_file() else []
+    except json.JSONDecodeError: history = []
+    history.append(entry); _save_json(path, history)
+
+
+def plot_losses(history: list[dict], path: Path):
+    if not history: return
+    epoch = [x["epoch"] for x in history]; fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    for key, label in (("total", "Total"), ("loc", "Localization"), ("mod", "Correction")):
+        axes[0].plot(epoch, [x["train"][key] for x in history], label=f"Train {label}")
+        axes[0].plot(epoch, [x["val"][key] for x in history], linestyle="--", label=f"Val {label}")
+    axes[0].set_ylabel("Loss"); axes[0].grid(alpha=.3); axes[0].legend(ncol=2)
+    axes[1].plot(epoch, [x["train"]["mae"] for x in history], label="Train correction MAE")
+    axes[1].plot(epoch, [x["val"]["mae"] for x in history], label="Val correction MAE")
+    axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("Scaled voltage MAE"); axes[1].grid(alpha=.3); axes[1].legend()
+    fig.tight_layout(); fig.savefig(path, dpi=150); plt.close(fig)
+
+
+def benchmark(model, device, samples: int) -> dict:
+    model.eval(); x = torch.randn(1, 1, 8, 8, device=device)
+    with torch.no_grad():
+        for _ in range(20): model(x)
+        if device.type == "cuda": torch.cuda.synchronize()
+        timings = []
+        for _ in range(samples):
+            if device.type == "cuda":
+                start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+                start.record(); model(x); end.record(); torch.cuda.synchronize(); timings.append(start.elapsed_time(end))
+            else:
+                start = time.perf_counter(); model(x); timings.append((time.perf_counter() - start) * 1000)
+    values = np.asarray(timings)
+    return {"samples": samples, "mean_ms": float(values.mean()), "std_ms": float(values.std()), "p95_ms": float(np.percentile(values, 95))}
+
 
 def main():
-    c=parser().parse_args(); random.seed(c.seed); np.random.seed(c.seed); torch.manual_seed(c.seed)
-    if not 0<c.val_ratio<1: raise ValueError("--val-ratio must be in (0,1)")
-    dev=torch.device("cuda" if torch.cuda.is_available() else "cpu"); out=Path(c.ckpt_dir); out.mkdir(parents=True,exist_ok=True)
-    noisy,clean=read(c.noisy_voltage,64,"Noisy voltage"),read(c.clean_voltage,64,"Clean voltage"); synth,sy=read(c.synthetic_voltage,64,"Synthetic voltage"),poses(read(c.synthetic_label,6,"Synthetic labels")); y=poses(read(c.noisy_label,6,"Noisy pose labels"))
-    if len(noisy)!=len(clean): raise ValueError("Noisy/clean voltage row mismatch")
-    if len(y)!=len(noisy) and c.phase=="finetune": raise ValueError("Finetune requires paired noisy pose labels")
-    if len(synth)!=len(sy): raise ValueError("Synthetic voltage/label row mismatch")
-    ta,va=split(len(noisy),c.val_ratio,c.seed); tb,vb=split(len(synth),c.val_ratio,c.seed+1); sp=c.scaler_file or str(out/"scalers.pkl")
-    if os.path.exists(sp):
-        with open(sp,"rb") as f: scalers=pickle.load(f)
-    else:
-        vs=StreamingMinMaxScaler((0,1)); [vs.partial_fit(x) for x in (noisy[ta],clean[ta],synth[tb])]; ls=PosLabelScaler(); ls.partial_fit(np.concatenate((y[ta],sy[tb]))); scalers={"volt":vs,"label":ls,"label_format":"mvec","voltage_space":"minmax_[0,1]"}; save_scalers(out/"scalers.pkl",scalers)
-    vs,ls=scalers["volt"],scalers["label"]; noisy,clean,synth=[vs.transform(x).reshape(-1,1,8,8).astype(np.float32) for x in (noisy,clean,synth)]; y,sy=ls.transform(y),ls.transform(sy)
-    if c.phase=="modnet": tr,va_ds=DS(noisy[ta],clean[ta]),DS(noisy[va],clean[va])
-    elif c.phase=="locnet": tr,va_ds=DS(synth[tb],sy[tb]),DS(synth[vb],sy[vb])
-    else: tr,va_ds=DS(noisy[ta],clean[ta],y[ta]),DS(noisy[va],clean[va],y[va])
-    tl=DataLoader(tr,batch_size=c.batch_size,shuffle=True,num_workers=c.num_workers); vl=DataLoader(va_ds,batch_size=c.batch_size,num_workers=c.num_workers)
-    m=Model(use_modnet=c.phase!="locnet").to(dev)
-    if c.phase=="finetune":
-        if not(c.modnet_checkpoint and c.locnet_checkpoint): raise ValueError("finetune needs --modnet-checkpoint and --locnet-checkpoint")
-        load_part(m.modnet,c.modnet_checkpoint,"modnet",dev); load_part(m.locnet,c.locnet_checkpoint,"locnet",dev)
-    groups=[{"params":m.modnet.parameters(),"lr":c.lr_modnet}] if c.phase=="modnet" else ([{"params":m.locnet.parameters(),"lr":c.lr_locnet}] if c.phase=="locnet" else [{"params":m.modnet.parameters(),"lr":c.lr_modnet},{"params":m.locnet.parameters(),"lr":c.lr_locnet}])
-    opt=torch.optim.AdamW(groups,weight_decay=c.weight_decay); sch=torch.optim.lr_scheduler.CosineAnnealingLR(opt,T_max=max(1,c.epochs)); pw=0 if c.no_physics else c.lambda_physics
-    crit=HuberPoseLossMVec(c.lambda_ori,c.delta_xyz,c.lambda_pos,pw,c.physics_delta,c.calib_physical_csv if pw else None,c.calib_alpha_csv if pw else None,vs if pw else None,ls if pw else None).to(dev)
-    start,best=1,float("inf")
-    if c.resume:
-        z=torch.load(c.resume,map_location=dev,weights_only=False); (load_part(m.modnet,c.resume,"modnet",dev) if c.phase=="modnet" else load_part(m.locnet,c.resume,"locnet",dev) if c.phase=="locnet" else m.load_state_dict(strip(z["model_state_dict"]),strict=False)); opt.load_state_dict(z["optimizer_state_dict"]); sch.load_state_dict(z["scheduler_state_dict"]); start,best=z["epoch"]+1,z["best_val"]
-    names={"modnet":"modnet_pretrained.pt","locnet":"locnet_pretrained.pt","finetune":"full_model_best.pt"}; last={"modnet":"modnet_last.pt","locnet":"locnet_last.pt","finetune":"full_model_last.pt"}
-    def epoch(loader,training):
-        m.train(training); r={k:0. for k in ("total","loc","mod","mae")}; count=0
-        for b in loader:
-            b=[q.to(dev) for q in b]
-            if training: opt.zero_grad(set_to_none=True)
-            if c.phase=="modnet": corrected=m.modnet(b[0]); mod=F.huber_loss(corrected,b[1],delta=c.mod_delta); loc=mod*0; loss=mod
-            elif c.phase=="locnet": corrected=b[0]; pred=m.locnet(b[0]); loc,*_=crit(pred,b[1],X_b=b[0]); mod=loc*0; loss=loc
-            else: pred,aux=m(b[0],return_features=True); corrected=aux["corrected"]; loc,*_=crit(pred,b[2],X_b=corrected); mod=F.huber_loss(corrected,b[1],delta=c.mod_delta); loss=loc+c.lambda_mod*mod
-            if training: loss.backward(); torch.nn.utils.clip_grad_norm_(m.parameters(),1.); opt.step()
-            n=len(b[0]); r["total"]+=loss.item()*n; r["loc"]+=loc.item()*n; r["mod"]+=mod.item()*n; r["mae"]+=(corrected-b[1]).abs().mean().item()*n; count+=n
-        return {k:v/count for k,v in r.items()}
-    print(f"Training {c.phase} on {dev}; ModNet operates in saved min-max normalized voltage space.")
-    for e in range(start,c.epochs+1):
-        a=epoch(tl,True)
-        with torch.no_grad(): b=epoch(vl,False)
-        sch.step(); metrics={"train":a,"val":b,"lr":[g["lr"] for g in opt.param_groups]}; print(f"{e:03d} train={a['total']:.6f} val={b['total']:.6f} loc={b['loc']:.6f} mod={b['mod']:.6f} mae={b['mae']:.6f}")
-        save(out/last[c.phase],c.phase,e,best,m,opt,sch,scalers,metrics)
-        if b["total"]<best: best=b["total"]; save(out/names[c.phase],c.phase,e,best,m,opt,sch,scalers,metrics)
-    print(f"Best checkpoint: {out/names[c.phase]} (val={best:.6f})")
-if __name__=="__main__": main()
+    cfg = get_config(); random.seed(cfg.seed); np.random.seed(cfg.seed); torch.manual_seed(cfg.seed)
+    if not 0 < cfg.val_ratio < 1: raise ValueError("--val-ratio must be in (0, 1)")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    run_dir = Path(cfg.ckpt_dir); run_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(cfg.cache_dir or run_dir / "data_cache")
+    if cfg.num_workers is None: cfg.num_workers = default_num_workers(device)
+    arrays, split, scalers = prepare_cache(cfg, cache_dir, cfg.scaler_file)
+    with open(run_dir / "scalers.pkl", "wb") as f: pickle.dump(scalers, f)
+    np.savez(run_dir / "split_info_three_phase.npz", **{key: split[key] for key in split.files})
+    if cfg.phase == "modnet": train_ds, val_ds = MultiMemmapDataset(arrays[:2], split["train_a"]), MultiMemmapDataset(arrays[:2], split["val_a"])
+    elif cfg.phase == "locnet": train_ds, val_ds = MultiMemmapDataset([arrays[3], arrays[4]], split["train_b"]), MultiMemmapDataset([arrays[3], arrays[4]], split["val_b"])
+    else: train_ds, val_ds = MultiMemmapDataset(arrays[:3], split["train_a"]), MultiMemmapDataset(arrays[:3], split["val_a"])
+    train_loader, val_loader = make_loaders(train_ds, val_ds, cfg.batch_size, cfg.num_workers, device, cfg.prefetch_factor, cfg.samples_per_epoch)
+    base_model = Model(use_modnet=cfg.phase != "locnet").to(device)
+    if cfg.phase == "finetune":
+        if not (cfg.modnet_checkpoint and cfg.locnet_checkpoint): raise ValueError("Phase finetune requires both pretrained checkpoint paths")
+        load_component(base_model.modnet, cfg.modnet_checkpoint, "modnet", device); load_component(base_model.locnet, cfg.locnet_checkpoint, "locnet", device)
+    params = ([{"params": base_model.modnet.parameters(), "lr": cfg.lr_modnet}] if cfg.phase == "modnet" else
+              [{"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}] if cfg.phase == "locnet" else
+              [{"params": base_model.modnet.parameters(), "lr": cfg.lr_modnet}, {"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}])
+    optimizer = torch.optim.AdamW(params, weight_decay=cfg.weight_decay)
+    warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=.1, end_factor=1., total_iters=max(1, cfg.warmup_epochs))
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, cfg.num_epochs - cfg.warmup_epochs), eta_min=1e-6)
+    scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [warmup, cosine], milestones=[cfg.warmup_epochs])
+    physics = 0.0 if cfg.no_physics else cfg.lambda_physics
+    criterion = HuberPoseLossMVec(cfg.lambda_ori, cfg.delta_xyz, cfg.lambda_pos, physics, cfg.physics_delta,
+        cfg.calib_physical_csv if physics else None, cfg.calib_alpha_csv if physics else None,
+        scalers["volt"] if physics else None, scalers["label"] if physics else None).to(device)
+    model = base_model
+    if cfg.compile and device.type == "cuda" and platform.system() != "Windows":
+        try: model = torch.compile(base_model); print("torch.compile enabled")
+        except Exception as exc: print(f"torch.compile unavailable: {exc}")
+    use_amp = device.type == "cuda"; amp = torch.amp.GradScaler("cuda", enabled=use_amp)
+    start_epoch, best = 1, float("inf"); log_path = run_dir / "train_log.json"
+    if cfg.resume:
+        saved = torch.load(cfg.resume, map_location=device, weights_only=False)
+        if cfg.phase == "modnet": load_component(base_model.modnet, cfg.resume, "modnet", device)
+        elif cfg.phase == "locnet": load_component(base_model.locnet, cfg.resume, "locnet", device)
+        else: base_model.load_state_dict(_strip(saved["model_state_dict"]), strict=False)
+        optimizer.load_state_dict(saved["optimizer_state_dict"]); scheduler.load_state_dict(saved["scheduler_state_dict"])
+        start_epoch, best = saved["epoch"] + 1, saved["best_val"]
+    names = {"modnet": ("modnet_pretrained.pt", "modnet_last.pt"), "locnet": ("locnet_pretrained.pt", "locnet_last.pt"), "finetune": ("full_model_best.pt", "full_model_last.pt")}
+    best_path, last_path = (run_dir / name for name in names[cfg.phase]); no_improve = 0
+    def run_epoch(loader, training):
+        (model.train() if training else model.eval()); totals = {k: 0. for k in ("total", "loc", "mod", "mae", "physics")}; seen = 0
+        context = torch.enable_grad() if training else torch.no_grad()
+        with context:
+            for batch in loader:
+                batch = [x.to(device, non_blocking=True) for x in batch]
+                if training: optimizer.zero_grad(set_to_none=True)
+                with torch.amp.autocast("cuda", enabled=use_amp):
+                    if cfg.phase == "modnet": corrected = base_model.modnet(batch[0]); mod = F.huber_loss(corrected, batch[1], delta=cfg.mod_delta); loc = mod * 0; loss = mod
+                    elif cfg.phase == "locnet": corrected = batch[0]; pred = base_model.locnet(batch[0]); loc, _, _ = criterion(pred, batch[1], X_b=batch[0]); mod = loc * 0; loss = loc
+                    else: pred, aux = model(batch[0], return_features=True); corrected = aux["corrected"]; loc, _, _ = criterion(pred, batch[2], X_b=corrected); mod = F.huber_loss(corrected, batch[1], delta=cfg.mod_delta); loss = loc + cfg.lambda_mod * mod
+                if not torch.isfinite(loss): continue
+                if training:
+                    amp.scale(loss).backward(); amp.unscale_(optimizer); torch.nn.utils.clip_grad_norm_(base_model.parameters(), 1.0); amp.step(optimizer); amp.update()
+                n = len(batch[0]); totals["total"] += loss.item()*n; totals["loc"] += loc.item()*n; totals["mod"] += mod.item()*n; totals["mae"] += (corrected-batch[1 if cfg.phase != "locnet" else 0]).abs().mean().item()*n; totals["physics"] += criterion.latest_loss_physics.item()*n; seen += n
+        return {k: v / max(1, seen) for k, v in totals.items()}
+    print(f"Training {cfg.phase}: {len(train_ds):,} train / {len(val_ds):,} val, device={device}, cache={cache_dir}")
+    for epoch in range(start_epoch, cfg.num_epochs + 1):
+        t0 = time.time(); train_metrics, val_metrics = run_epoch(train_loader, True), run_epoch(val_loader, False); scheduler.step()
+        entry = {"epoch": epoch, "train": train_metrics, "val": val_metrics, "lr": [g["lr"] for g in optimizer.param_groups], "seconds": time.time()-t0}
+        append_log(log_path, entry); print(f"{epoch:03d} train={train_metrics['total']:.6f} val={val_metrics['total']:.6f} loc={val_metrics['loc']:.6f} mod={val_metrics['mod']:.6f} phys={val_metrics['physics']:.6f} ({entry['seconds']:.1f}s)")
+        save_checkpoint(last_path, cfg.phase, epoch, base_model, optimizer, scheduler, best, entry, scalers)
+        if val_metrics["total"] < best:
+            best, no_improve = val_metrics["total"], 0; save_checkpoint(best_path, cfg.phase, epoch, base_model, optimizer, scheduler, best, entry, scalers)
+            print(f"  -> best saved: {best:.6f}")
+        else: no_improve += 1
+        if epoch % cfg.save_every == 0: save_checkpoint(run_dir / f"{cfg.phase}_epoch_{epoch:04d}.pt", cfg.phase, epoch, base_model, optimizer, scheduler, best, entry, scalers)
+        if no_improve >= cfg.patience: print(f"Early stopping after {cfg.patience} unimproved epochs."); break
+    try: history = json.loads(log_path.read_text())
+    except json.JSONDecodeError: history = []
+    plot_losses(history, run_dir / "loss_plot.png")
+    if cfg.benchmark_samples > 0 and best_path.is_file():
+        saved = torch.load(best_path, map_location=device, weights_only=False)
+        if cfg.phase == "modnet": load_component(base_model.modnet, best_path, "modnet", device)
+        elif cfg.phase == "locnet": load_component(base_model.locnet, best_path, "locnet", device)
+        else: base_model.load_state_dict(_strip(saved["model_state_dict"]), strict=False)
+        results = benchmark(model, device, cfg.benchmark_samples); _save_json(run_dir / "inference_time.json", results)
+        print(f"Inference: {results['mean_ms']:.3f} ms/sample (p95 {results['p95_ms']:.3f} ms)")
+    print(f"Done. Best validation loss: {best:.6f}; checkpoint: {best_path}")
+
+
+if __name__ == "__main__": main()
