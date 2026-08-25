@@ -13,13 +13,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--test_voltage", default="../Data set 18.6/grid_data.csv")
 parser.add_argument("--test_label",   default="../Data set 18.6/grid_points_coordinates.csv")
 parser.add_argument("--ckpt_dir",     default="./ckpt_mvec")
+parser.add_argument("--checkpoint",   default=None,
+                    help="Checkpoint path; defaults to <ckpt_dir>/full_model_best.pt then best.pt.")
+parser.add_argument("--use_modnet", action=argparse.BooleanOptionalAction, default=None,
+                    help="Override checkpoint architecture for baseline ablation.")
 parser.add_argument("--code_dir",     default=".")
 parser.add_argument("--out",          default="test_result.png")
 args = parser.parse_args()
 
 sys.path.insert(0, args.code_dir)
 from model import Model  # noqa: E402
-from train_mvec import PosLabelScaler
 
 # =============================================================================
 # Helpers
@@ -94,7 +97,13 @@ gt_mvec = gt_mvec / (m_norms + 1e-14)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"  Device  : {device}")
 
-model = Model(out_dim=6).to(device)
+ckpt_path = args.checkpoint or os.path.join(args.ckpt_dir, "full_model_best.pt")
+if not os.path.exists(ckpt_path):
+    ckpt_path = os.path.join(args.ckpt_dir, "best.pt")
+ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+is_full = "model_state_dict" in ckpt or any(k.startswith("modnet.") for k in ckpt.get("model", {}))
+use_modnet = is_full if args.use_modnet is None else args.use_modnet
+model = Model(out_dim=6, use_modnet=use_modnet).to(device)
 
 if platform.system() != "Windows":
     try:    model = torch.compile(model); print("torch.compile enabled")
@@ -102,16 +111,18 @@ if platform.system() != "Windows":
 else:
     print("torch.compile disabled (Windows)")
 
-ckpt_path = os.path.join(args.ckpt_dir, "best.pt")
 print(f"  Loading checkpoint from {ckpt_path} ...")
-
-ckpt      = torch.load(ckpt_path, map_location=device, weights_only=False)
-raw_state = ckpt["model"]
+raw_state = ckpt.get("model_state_dict", ckpt.get("model", ckpt.get("locnet_state_dict")))
 state = {k.replace("_orig_mod.", ""): v for k, v in raw_state.items()}
 state.pop("sensor_pos", None)
+if not any(k.startswith("locnet.") for k in state):
+    # Old checkpoints stored only the localization backbone.
+    state = {"locnet." + k: v for k, v in state.items()}
 
 raw_model = model._orig_mod if hasattr(model, "_orig_mod") else model
-raw_model.load_state_dict(state, strict=True)
+missing, unexpected = raw_model.load_state_dict(state, strict=False)
+if missing or unexpected:
+    print(f"  Warning checkpoint mismatch: missing={list(missing)}, unexpected={list(unexpected)}")
 model.eval()
 
 print(f"  Checkpoint epoch : {ckpt.get('epoch', '?')}")

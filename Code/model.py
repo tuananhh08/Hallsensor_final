@@ -122,6 +122,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from cbam import CBAM, ChannelAttention
 from convnext_block import ConvNeXtBlock
+from modnet import ModNet
 
 class DualPool(nn.Module):
     def __init__(self):
@@ -164,7 +165,7 @@ class Stage1(nn.Module):
         return self.bn_out(out) 
 
 
-class Model(nn.Module):
+class LocalizationNet(nn.Module):
     def __init__(self, out_dim: int = 6, drop_path_rate: float = 0.015):
         super().__init__()
         self.out_dim = out_dim
@@ -233,4 +234,24 @@ class Model(nn.Module):
 
         return torch.cat([xyz, m_norm], dim=1)
 
+
+class Model(nn.Module):
+    """Full localization model"""
+    def __init__(self, out_dim: int = 6, drop_path_rate: float = 0.015,
+                 use_modnet: bool = True):
+        super().__init__()
+        self.use_modnet = use_modnet
+        self.modnet = ModNet()
+        self.locnet = LocalizationNet(out_dim=out_dim, drop_path_rate=drop_path_rate)
+
+    def forward(self, x: torch.Tensor, return_features: bool = False):
+        input_x = x
+        if self.use_modnet:
+            corrected, residual = self.modnet(x, return_residual=True)
+        else:
+            corrected, residual = x, torch.zeros_like(x)
+        pred = self.locnet(corrected)
+        if return_features:
+            return pred, {"input": input_x, "corrected": corrected, "residual": residual}
+        return pred
 
