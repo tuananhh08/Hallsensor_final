@@ -220,3 +220,36 @@ class HuberPoseLossMVec(nn.Module):
 
         total = self.lambda_pos * loss_xyz + self.lambda_ori * loss_ori + self.lambda_physics * loss_physics
         return total, loss_xyz, loss_ori
+
+
+class CalibLocLoss(nn.Module):
+    
+    def __init__(self, pose_loss: HuberPoseLossMVec,
+                 lambda_calib: float = 0.1, calib_delta: float = 0.05):
+        super().__init__()
+        if lambda_calib < 0:
+            raise ValueError(f"lambda_calib must be >= 0. Got {lambda_calib}")
+        if calib_delta <= 0:
+            raise ValueError(f"calib_delta must be positive. Got {calib_delta}")
+        self.pose_loss = pose_loss
+        self.lambda_calib = lambda_calib
+        self.calib_delta = calib_delta
+        self.register_buffer("latest_loss_calib", torch.tensor(0.0))
+
+    def calibration_term(self, corrected: torch.Tensor, clean: torch.Tensor) -> torch.Tensor:
+        if corrected.shape != clean.shape:
+            raise ValueError(
+                f"corrected and clean must have the same shape; got "
+                f"{tuple(corrected.shape)} and {tuple(clean.shape)}"
+            )
+        return F.huber_loss(corrected.float(), clean.float(), delta=self.calib_delta)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor,
+                corrected: torch.Tensor, clean: torch.Tensor):
+        pose_total, loss_xyz, loss_ori = self.pose_loss(pred, target, X_b=corrected)
+        loss_calib = self.calibration_term(corrected, clean)
+        if not torch.isfinite(loss_calib):
+            raise FloatingPointError("Calibration loss is non-finite")
+        self.latest_loss_calib.copy_(loss_calib.detach())
+        total = pose_total + self.lambda_calib * loss_calib
+        return total, loss_calib, pose_total, loss_xyz, loss_ori

@@ -1,8 +1,3 @@
-"""Train ModNet and the magnetic-localization network in three compatible phases.
-
-The cache stores scaled 8x8 tensors as NPY memmaps.  One scaler is fitted only
-on training rows and is then reused unchanged by all phases and inference.
-"""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +17,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 
 from data_mvec import PosLabelScaler, StreamingMinMaxScaler
-from loss_mvec import HuberPoseLossMVec
+from loss_mvec import CalibLocLoss, HuberPoseLossMVec
 from model import Model
 from training_loop import default_num_workers, make_loaders
 
@@ -50,8 +45,8 @@ def get_config():
     p.add_argument("--lr-calibnet", type=float, default=2e-4)
     p.add_argument("--lr-locnet", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=4.56e-3)
-    p.add_argument("--lambda-mod", type=float, default=0.1)
-    p.add_argument("--mod-delta", type=float, default=0.05)
+    p.add_argument("--lambda-calib", "--lambda-mod", dest="lambda_calib", type=float, default=0.1)
+    p.add_argument("--calib-delta", "--mod-delta", dest="calib_delta", type=float, default=0.05)
     p.add_argument("--lambda-ori", type=float, default=1.0)
     p.add_argument("--delta-xyz", type=float, default=0.061)
     p.add_argument("--lambda-pos", type=float, default=1.0)
@@ -184,7 +179,7 @@ def save_checkpoint(path, phase, epoch, model, optimizer, scheduler, best_val, m
             "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
             "preprocessing": {"voltage_space": "minmax_[0,1]", "sensor_order": "sensor_1..sensor_64 row-major 8x8", "scaler_file": "scalers.pkl"},
             "scaler_metadata": _scaler_signature(scalers)}
-    if phase == "modnet": data["modnet_state_dict"] = model.modnet.state_dict()
+    if phase == "calibnet": data["modnet_state_dict"] = model.modnet.state_dict()
     elif phase == "locnet": data["locnet_state_dict"] = model.locnet.state_dict()
     else: data.update({"model_state_dict": model.state_dict(), "modnet_state_dict": model.modnet.state_dict(), "locnet_state_dict": model.locnet.state_dict()})
     torch.save(data, path)
@@ -199,7 +194,7 @@ def append_log(path: Path, entry: dict):
 def plot_losses(history: list[dict], path: Path):
     if not history: return
     epoch = [x["epoch"] for x in history]; fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-    for key, label in (("total", "Total"), ("loc", "Localization"), ("mod", "Correction")):
+    for key, label in (("total", "Total"), ("loc", "Localization"), ("calib", "Calibration")):
         axes[0].plot(epoch, [x["train"][key] for x in history], label=f"Train {label}")
         axes[0].plot(epoch, [x["val"][key] for x in history], linestyle="--", label=f"Val {label}")
     axes[0].set_ylabel("Loss"); axes[0].grid(alpha=.3); axes[0].legend(ncol=2)
@@ -235,7 +230,7 @@ def main():
     arrays, split, scalers = prepare_cache(cfg, cache_dir, cfg.scaler_file)
     with open(run_dir / "scalers.pkl", "wb") as f: pickle.dump(scalers, f)
     np.savez(run_dir / "split_info_three_phase.npz", **{key: split[key] for key in split.files})
-    if cfg.phase == "modnet": train_ds, val_ds = MultiMemmapDataset(arrays[:2], split["train_a"]), MultiMemmapDataset(arrays[:2], split["val_a"])
+    if cfg.phase == "calibnet": train_ds, val_ds = MultiMemmapDataset(arrays[:2], split["train_a"]), MultiMemmapDataset(arrays[:2], split["val_a"])
     elif cfg.phase == "locnet": train_ds, val_ds = MultiMemmapDataset([arrays[3], arrays[4]], split["train_b"]), MultiMemmapDataset([arrays[3], arrays[4]], split["val_b"])
     else: train_ds, val_ds = MultiMemmapDataset(arrays[:3], split["train_a"]), MultiMemmapDataset(arrays[:3], split["val_a"])
     train_loader, val_loader = make_loaders(train_ds, val_ds, cfg.batch_size, cfg.num_workers, device, cfg.prefetch_factor, cfg.samples_per_epoch)
@@ -243,9 +238,9 @@ def main():
     if cfg.phase == "finetune":
         if not (cfg.modnet_checkpoint and cfg.locnet_checkpoint): raise ValueError("Phase finetune requires both pretrained checkpoint paths")
         load_component(base_model.modnet, cfg.modnet_checkpoint, "modnet", device); load_component(base_model.locnet, cfg.locnet_checkpoint, "locnet", device)
-    params = ([{"params": base_model.modnet.parameters(), "lr": cfg.lr_modnet}] if cfg.phase == "modnet" else
+    params = ([{"params": base_model.modnet.parameters(), "lr": cfg.lr_calibnet}] if cfg.phase == "calibnet" else
               [{"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}] if cfg.phase == "locnet" else
-              [{"params": base_model.modnet.parameters(), "lr": cfg.lr_modnet}, {"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}])
+              [{"params": base_model.modnet.parameters(), "lr": cfg.lr_calibnet}, {"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}])
     optimizer = torch.optim.AdamW(params, weight_decay=cfg.weight_decay)
     warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=.1, end_factor=1., total_iters=max(1, cfg.warmup_epochs))
     cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, cfg.num_epochs - cfg.warmup_epochs), eta_min=1e-6)
@@ -254,6 +249,7 @@ def main():
     criterion = HuberPoseLossMVec(cfg.lambda_ori, cfg.delta_xyz, cfg.lambda_pos, physics, cfg.physics_delta,
         cfg.calib_physical_csv if physics else None, cfg.calib_alpha_csv if physics else None,
         scalers["volt"] if physics else None, scalers["label"] if physics else None).to(device)
+    pipeline_criterion = CalibLocLoss(criterion, cfg.lambda_calib, cfg.calib_delta).to(device)
     model = base_model
     if cfg.compile and device.type == "cuda" and platform.system() != "Windows":
         try: model = torch.compile(base_model); print("torch.compile enabled")
@@ -262,34 +258,46 @@ def main():
     start_epoch, best = 1, float("inf"); log_path = run_dir / "train_log.json"
     if cfg.resume:
         saved = torch.load(cfg.resume, map_location=device, weights_only=False)
-        if cfg.phase == "modnet": load_component(base_model.modnet, cfg.resume, "modnet", device)
+        if cfg.phase == "calibnet": load_component(base_model.modnet, cfg.resume, "modnet", device)
         elif cfg.phase == "locnet": load_component(base_model.locnet, cfg.resume, "locnet", device)
         else: base_model.load_state_dict(_strip(saved["model_state_dict"]), strict=False)
         optimizer.load_state_dict(saved["optimizer_state_dict"]); scheduler.load_state_dict(saved["scheduler_state_dict"])
         start_epoch, best = saved["epoch"] + 1, saved["best_val"]
-    names = {"modnet": ("modnet_pretrained.pt", "modnet_last.pt"), "locnet": ("locnet_pretrained.pt", "locnet_last.pt"), "finetune": ("full_model_best.pt", "full_model_last.pt")}
+    names = {"calibnet": ("calibnet_pretrained.pt", "calibnet_last.pt"), "locnet": ("locnet_pretrained.pt", "locnet_last.pt"), "finetune": ("full_model_best.pt", "full_model_last.pt")}
     best_path, last_path = (run_dir / name for name in names[cfg.phase]); no_improve = 0
     def run_epoch(loader, training):
-        (model.train() if training else model.eval()); totals = {k: 0. for k in ("total", "loc", "mod", "mae", "physics")}; seen = 0
+        (model.train() if training else model.eval()); totals = {k: 0. for k in ("total", "loc", "calib", "mae", "physics")}; seen = 0
         context = torch.enable_grad() if training else torch.no_grad()
         with context:
             for batch in loader:
                 batch = [x.to(device, non_blocking=True) for x in batch]
                 if training: optimizer.zero_grad(set_to_none=True)
                 with torch.amp.autocast("cuda", enabled=use_amp):
-                    if cfg.phase == "modnet": corrected = base_model.modnet(batch[0]); mod = F.huber_loss(corrected, batch[1], delta=cfg.mod_delta); loc = mod * 0; loss = mod
-                    elif cfg.phase == "locnet": corrected = batch[0]; pred = base_model.locnet(batch[0]); loc, _, _ = criterion(pred, batch[1], X_b=batch[0]); mod = loc * 0; loss = loc
-                    else: pred, aux = model(batch[0], return_features=True); corrected = aux["corrected"]; loc, _, _ = criterion(pred, batch[2], X_b=corrected); mod = F.huber_loss(corrected, batch[1], delta=cfg.mod_delta); loss = loc + cfg.lambda_mod * mod
+                    if cfg.phase == "calibnet":
+                        corrected = base_model.modnet(batch[0])
+                        calib = pipeline_criterion.calibration_term(corrected, batch[1])
+                        loc = calib * 0
+                        loss = calib
+                    elif cfg.phase == "locnet":
+                        corrected = batch[0]
+                        pred = base_model.locnet(corrected)
+                        loc, _, _ = criterion(pred, batch[1], X_b=corrected)
+                        calib = loc * 0
+                        loss = loc
+                    else:
+                        pred, aux = model(batch[0], return_features=True)
+                        corrected = aux["corrected"]
+                        loss, calib, loc, _, _ = pipeline_criterion(pred, batch[2], corrected, batch[1])
                 if not torch.isfinite(loss): continue
                 if training:
                     amp.scale(loss).backward(); amp.unscale_(optimizer); torch.nn.utils.clip_grad_norm_(base_model.parameters(), 1.0); amp.step(optimizer); amp.update()
-                n = len(batch[0]); totals["total"] += loss.item()*n; totals["loc"] += loc.item()*n; totals["mod"] += mod.item()*n; totals["mae"] += (corrected-batch[1 if cfg.phase != "locnet" else 0]).abs().mean().item()*n; totals["physics"] += criterion.latest_loss_physics.item()*n; seen += n
+                n = len(batch[0]); totals["total"] += loss.item()*n; totals["loc"] += loc.item()*n; totals["calib"] += calib.item()*n; totals["mae"] += (corrected-batch[1 if cfg.phase != "locnet" else 0]).abs().mean().item()*n; totals["physics"] += criterion.latest_loss_physics.item()*n; seen += n
         return {k: v / max(1, seen) for k, v in totals.items()}
     print(f"Training {cfg.phase}: {len(train_ds):,} train / {len(val_ds):,} val, device={device}, cache={cache_dir}")
     for epoch in range(start_epoch, cfg.num_epochs + 1):
         t0 = time.time(); train_metrics, val_metrics = run_epoch(train_loader, True), run_epoch(val_loader, False); scheduler.step()
         entry = {"epoch": epoch, "train": train_metrics, "val": val_metrics, "lr": [g["lr"] for g in optimizer.param_groups], "seconds": time.time()-t0}
-        append_log(log_path, entry); print(f"{epoch:03d} train={train_metrics['total']:.6f} val={val_metrics['total']:.6f} loc={val_metrics['loc']:.6f} mod={val_metrics['mod']:.6f} phys={val_metrics['physics']:.6f} ({entry['seconds']:.1f}s)")
+        append_log(log_path, entry); print(f"{epoch:03d} train={train_metrics['total']:.6f} val={val_metrics['total']:.6f} loc={val_metrics['loc']:.6f} calib={val_metrics['calib']:.6f} phys={val_metrics['physics']:.6f} ({entry['seconds']:.1f}s)")
         save_checkpoint(last_path, cfg.phase, epoch, base_model, optimizer, scheduler, best, entry, scalers)
         if val_metrics["total"] < best:
             best, no_improve = val_metrics["total"], 0; save_checkpoint(best_path, cfg.phase, epoch, base_model, optimizer, scheduler, best, entry, scalers)
@@ -302,7 +310,7 @@ def main():
     plot_losses(history, run_dir / "loss_plot.png")
     if cfg.benchmark_samples > 0 and best_path.is_file():
         saved = torch.load(best_path, map_location=device, weights_only=False)
-        if cfg.phase == "modnet": load_component(base_model.modnet, best_path, "modnet", device)
+        if cfg.phase == "calibnet": load_component(base_model.modnet, best_path, "modnet", device)
         elif cfg.phase == "locnet": load_component(base_model.locnet, best_path, "locnet", device)
         else: base_model.load_state_dict(_strip(saved["model_state_dict"]), strict=False)
         results = benchmark(model, device, cfg.benchmark_samples); _save_json(run_dir / "inference_time.json", results)
