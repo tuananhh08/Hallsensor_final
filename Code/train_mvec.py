@@ -30,10 +30,10 @@ from training_loop import default_num_workers, make_loaders
 def get_config():
     root = Path(__file__).resolve().parent.parent / "Dataset" / "Dataset"
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--phase", choices=("modnet", "locnet", "finetune"), required=True)
-    p.add_argument("--noisy-voltage", default=str(root / "Grid_data.csv"))
+    p.add_argument("--phase", choices=("calibnet", "locnet", "finetune"), required=True)
+    p.add_argument("--raw-voltage", default=str(root / "Grid_data.csv"))
     p.add_argument("--clean-voltage", default=str(root / "Grid_data_computed.csv"))
-    p.add_argument("--noisy-label", default=str(root / "Grid_points_coordinates.csv"))
+    p.add_argument("--raw-label", default=str(root / "Grid_points_coordinates.csv"))
     p.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data.csv"))
     p.add_argument("--synthetic-label", default=str(root / "synthetic_grid_coordinates.csv"))
     p.add_argument("--calib-physical-csv", default=str(root / "Calibration_Physical_new.csv"))
@@ -42,12 +42,12 @@ def get_config():
     p.add_argument("--cache-dir", default=None)
     p.add_argument("--rebuild-cache", action="store_true")
     p.add_argument("--scaler-file", default=None, help="Existing scalers.pkl; never refit it.")
-    p.add_argument("--modnet-checkpoint", default=None)
+    p.add_argument("--calibnet-checkpoint", default=None)
     p.add_argument("--locnet-checkpoint", default=None)
     p.add_argument("--resume", default=None)
-    p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--batch-size", type=int, default=256)
     p.add_argument("--num-epochs", "--epochs", dest="num_epochs", type=int, default=200)
-    p.add_argument("--lr-modnet", type=float, default=2e-4)
+    p.add_argument("--lr-calibnet", type=float, default=2e-4)
     p.add_argument("--lr-locnet", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=4.56e-3)
     p.add_argument("--lambda-mod", type=float, default=0.1)
@@ -119,9 +119,9 @@ def _save_json(path: Path, data: object):
 
 
 def prepare_cache(cfg, cache_dir: Path, scaler_file: str | None):
-    """Fit/reuse scalers and prepare cached noisy, clean, synthetic arrays."""
+    """Fit/reuse scalers and prepare cached raw, clean, synthetic arrays."""
     sources = {key: _source_info(value) for key, value in {
-        "noisy": cfg.noisy_voltage, "clean": cfg.clean_voltage, "noisy_label": cfg.noisy_label,
+        "raw": cfg.raw_voltage, "clean": cfg.clean_voltage, "raw_label": cfg.raw_label,
         "synthetic": cfg.synthetic_voltage, "synthetic_label": cfg.synthetic_label}.items()}
     cache_dir.mkdir(parents=True, exist_ok=True); manifest_path = cache_dir / "three_phase_manifest.json"
     external_scalers = scaler_file is not None and Path(scaler_file).is_file()
@@ -130,7 +130,7 @@ def prepare_cache(cfg, cache_dir: Path, scaler_file: str | None):
     else: scalers = None
     expected = {"version": 1, "sources": sources, "val_ratio": cfg.val_ratio, "seed": cfg.seed,
                 "external_scaler": _scaler_signature(scalers) if scalers else None}
-    arrays = [cache_dir / x for x in ("noisy.npy", "clean.npy", "pose.npy", "synthetic.npy", "synthetic_pose.npy")]
+    arrays = [cache_dir / x for x in ("raw.npy", "clean.npy", "pose.npy", "synthetic.npy", "synthetic_pose.npy")]
     index_path = cache_dir / "splits.npz"
     try:
         valid = (not cfg.rebuild_cache and json.loads(manifest_path.read_text()) == expected and index_path.is_file()
@@ -139,20 +139,20 @@ def prepare_cache(cfg, cache_dir: Path, scaler_file: str | None):
     if valid:
         with open(cache_dir / "scalers.pkl", "rb") as f: return [*arrays], np.load(index_path), pickle.load(f)
 
-    noisy, clean = _read(cfg.noisy_voltage, 64, "Noisy voltage"), _read(cfg.clean_voltage, 64, "Clean voltage")
-    pose = _normalize_mvec(_read(cfg.noisy_label, 6, "Noisy pose labels"))
+    raw, clean = _read(cfg.raw_voltage, 64, "Raw voltage"), _read(cfg.clean_voltage, 64, "Clean voltage")
+    pose = _normalize_mvec(_read(cfg.raw_label, 6, "Raw pose labels"))
     synth, synth_pose = _read(cfg.synthetic_voltage, 64, "Synthetic voltage"), _normalize_mvec(_read(cfg.synthetic_label, 6, "Synthetic pose labels"))
-    if not (len(noisy) == len(clean) == len(pose)): raise ValueError("Noisy, clean, and noisy-label CSV row counts must match")
+    if not (len(raw) == len(clean) == len(pose)): raise ValueError("Raw, clean, and raw-label CSV row counts must match")
     if len(synth) != len(synth_pose): raise ValueError("Synthetic voltage/label CSV row counts must match")
-    rng = np.random.default_rng(cfg.seed); ia = rng.permutation(len(noisy)); ib = np.random.default_rng(cfg.seed + 1).permutation(len(synth))
+    rng = np.random.default_rng(cfg.seed); ia = rng.permutation(len(raw)); ib = np.random.default_rng(cfg.seed + 1).permutation(len(synth))
     na, nb = max(1, int(len(ia) * cfg.val_ratio)), max(1, int(len(ib) * cfg.val_ratio))
     train_a, val_a, train_b, val_b = ia[na:], ia[:na], ib[nb:], ib[:nb]
     if scalers is None:
-        volt = StreamingMinMaxScaler((0, 1)); [volt.partial_fit(x) for x in (noisy[train_a], clean[train_a], synth[train_b])]
+        volt = StreamingMinMaxScaler((0, 1)); [volt.partial_fit(x) for x in (raw[train_a], clean[train_a], synth[train_b])]
         label = PosLabelScaler(); label.partial_fit(np.concatenate((pose[train_a], synth_pose[train_b]), axis=0))
         scalers = {"volt": volt, "label": label, "label_format": "mvec", "voltage_space": "minmax_[0,1]"}
     vscale, lscale = scalers["volt"], scalers["label"]
-    scaled = [vscale.transform(x).reshape(-1, 1, 8, 8).astype(np.float32) for x in (noisy, clean, synth)]
+    scaled = [vscale.transform(x).reshape(-1, 1, 8, 8).astype(np.float32) for x in (raw, clean, synth)]
     output = [scaled[0], scaled[1], lscale.transform(pose), scaled[2], lscale.transform(synth_pose)]
     for path, value in zip(arrays, output): np.save(path, value)
     np.savez(index_path, train_a=train_a, val_a=val_a, train_b=train_b, val_b=val_b)
