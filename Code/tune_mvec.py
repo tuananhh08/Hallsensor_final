@@ -52,6 +52,13 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=None)
     parser.add_argument("--prefetch-factor", type=int, default=2)
     parser.add_argument("--no-physics", action="store_true")
+    parser.add_argument("--samples-per-epoch", type=int, default=0,
+                        help="Randomly subsample this many training examples per epoch during "
+                             "the search (0 = use the full training set every epoch, like before). "
+                             "HPO only needs a relative ranking between configs, so a subsample "
+                             "(e.g. 50000-100000) speeds up every trial x every epoch without "
+                             "changing the search space. The held-out validation set is always "
+                             "used in full so trial comparisons stay fair.")
     return parser.parse_args()
 
 
@@ -141,16 +148,21 @@ def main() -> None:
         torch.manual_seed(trial_seed)
         if device.type == "cuda":
             torch.cuda.manual_seed_all(trial_seed)
-        batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
-        train_loader, val_loader = make_loaders(train_ds, val_ds, batch_size, args.num_workers, device, args.prefetch_factor)
+        batch_size = trial.suggest_categorical("batch_size", [256, 512])
+        train_loader, val_loader = make_loaders(
+            train_ds, val_ds, batch_size, args.num_workers, device, args.prefetch_factor,
+            args.samples_per_epoch,
+        )
         model = Model(use_modnet=args.phase != "locnet").to(device)
         if args.phase == "finetune":
             load_component(model.modnet, args.calibnet_checkpoint, "modnet", device)
             load_component(model.locnet, args.locnet_checkpoint, "locnet", device)
         pose_loss = make_pose_loss(args, scalers, device, trial)
-        lambda_calib = (1.0 if args.phase == "calibnet" else
-                        trial.suggest_float("lambda_calib", 1e-3, 1.0, log=True))
-        calib_delta = trial.suggest_float("calib_delta", 0.005, 0.2)
+        if args.phase == "finetune":
+            lambda_calib = trial.suggest_float("lambda_calib", 1e-3, 1.0, log=True)
+            calib_delta = trial.suggest_float("calib_delta", 0.005, 0.2)
+        else:
+            lambda_calib, calib_delta = 1.0, 0.05
         pipeline_loss = CalibLocLoss(pose_loss, lambda_calib=lambda_calib, calib_delta=calib_delta).to(device)
         if args.phase == "calibnet":
             parameters = [{"params": model.modnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 3e-3, log=True)}]
