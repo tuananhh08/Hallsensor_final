@@ -122,7 +122,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from cbam import CBAM, ChannelAttention
 from convnext_block import ConvNeXtBlock
-from Code.calibnet import CalibNet
+from calibnet import CalibNet
 
 class DualPool(nn.Module):
     def __init__(self):

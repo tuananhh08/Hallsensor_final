@@ -20,7 +20,7 @@ class _ResidualBlock(nn.Module):
         return self.act(x + self.block(x))
 
 
-class ModNet(nn.Module):
+class CalibNet(nn.Module):
 
     def __init__(self, channels: int = 16, num_blocks: int = 2):
         super().__init__()
