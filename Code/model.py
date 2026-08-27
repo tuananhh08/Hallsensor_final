@@ -122,7 +122,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from cbam import CBAM, ChannelAttention
 from convnext_block import ConvNeXtBlock
-from modnet import ModNet
+from Code.calibnet import CalibNet
 
 class DualPool(nn.Module):
     def __init__(self):
@@ -240,14 +240,14 @@ class Model(nn.Module):
     def __init__(self, out_dim: int = 6, drop_path_rate: float = 0.015,
                  use_modnet: bool = True):
         super().__init__()
-        self.use_modnet = use_modnet
-        self.modnet = ModNet()
+        self.use_calibnet = use_modnet
+        self.calibnet = CalibNet()
         self.locnet = LocalizationNet(out_dim=out_dim, drop_path_rate=drop_path_rate)
 
     def forward(self, x: torch.Tensor, return_features: bool = False):
         input_x = x
-        if self.use_modnet:
-            corrected, residual = self.modnet(x, return_residual=True)
+        if self.use_calibnet:
+            corrected, residual = self.calibnet(x, return_residual=True)
         else:
             corrected, residual = x, torch.zeros_like(x)
         pred = self.locnet(corrected)
