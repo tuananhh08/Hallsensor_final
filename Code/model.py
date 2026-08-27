@@ -238,9 +238,9 @@ class LocalizationNet(nn.Module):
 class Model(nn.Module):
     """Full localization model"""
     def __init__(self, out_dim: int = 6, drop_path_rate: float = 0.015,
-                 use_modnet: bool = True):
+                 use_calibnet: bool = True):
         super().__init__()
-        self.use_calibnet = use_modnet
+        self.use_calibnet = use_calibnet
         self.calibnet = CalibNet()
         self.locnet = LocalizationNet(out_dim=out_dim, drop_path_rate=drop_path_rate)
 
