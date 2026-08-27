@@ -36,7 +36,7 @@ class CalibNet(nn.Module):
 
     def forward(self, x: torch.Tensor, return_residual: bool = False):
         if x.ndim != 4 or x.shape[1:] != (1, 8, 8):
-            raise ValueError(f"ModNet expects (V, 1, 8, 8), got {tuple(x.shape)}")
+            raise ValueError(f"CalibNet expects (V, 1, 8, 8), got {tuple(x.shape)}")
         residual = self.to_residual(self.blocks(self.stem(x)))
         corrected = x + residual
         return (corrected, residual) if return_residual else corrected
