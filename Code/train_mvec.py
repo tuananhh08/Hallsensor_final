@@ -179,9 +179,9 @@ def save_checkpoint(path, phase, epoch, model, optimizer, scheduler, best_val, m
             "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict(),
             "preprocessing": {"voltage_space": "minmax_[0,1]", "sensor_order": "sensor_1..sensor_64 row-major 8x8", "scaler_file": "scalers.pkl"},
             "scaler_metadata": _scaler_signature(scalers)}
-    if phase == "calibnet": data["modnet_state_dict"] = model.modnet.state_dict()
+    if phase == "calibnet": data["calibnet_state_dict"] = model.calibnet.state_dict()
     elif phase == "locnet": data["locnet_state_dict"] = model.locnet.state_dict()
-    else: data.update({"model_state_dict": model.state_dict(), "modnet_state_dict": model.modnet.state_dict(), "locnet_state_dict": model.locnet.state_dict()})
+    else: data.update({"model_state_dict": model.state_dict(), "calibnet_state_dict": model.calibnet.state_dict(), "locnet_state_dict": model.locnet.state_dict()})
     torch.save(data, path)
 
 
@@ -234,13 +234,13 @@ def main():
     elif cfg.phase == "locnet": train_ds, val_ds = MultiMemmapDataset([arrays[3], arrays[4]], split["train_b"]), MultiMemmapDataset([arrays[3], arrays[4]], split["val_b"])
     else: train_ds, val_ds = MultiMemmapDataset(arrays[:3], split["train_a"]), MultiMemmapDataset(arrays[:3], split["val_a"])
     train_loader, val_loader = make_loaders(train_ds, val_ds, cfg.batch_size, cfg.num_workers, device, cfg.prefetch_factor, cfg.samples_per_epoch)
-    base_model = Model(use_modnet=cfg.phase != "locnet").to(device)
+    base_model = Model(use_calibnet=cfg.phase != "locnet").to(device)
     if cfg.phase == "finetune":
-        if not (cfg.modnet_checkpoint and cfg.locnet_checkpoint): raise ValueError("Phase finetune requires both pretrained checkpoint paths")
-        load_component(base_model.modnet, cfg.modnet_checkpoint, "modnet", device); load_component(base_model.locnet, cfg.locnet_checkpoint, "locnet", device)
-    params = ([{"params": base_model.modnet.parameters(), "lr": cfg.lr_calibnet}] if cfg.phase == "calibnet" else
+        if not (cfg.calibnet_checkpoint and cfg.locnet_checkpoint): raise ValueError("Phase finetune requires both pretrained checkpoint paths")
+        load_component(base_model.calibnet, cfg.calibnet_checkpoint, "calibnet", device); load_component(base_model.locnet, cfg.locnet_checkpoint, "locnet", device)
+    params = ([{"params": base_model.calibnet.parameters(), "lr": cfg.lr_calibnet}] if cfg.phase == "calibnet" else
               [{"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}] if cfg.phase == "locnet" else
-              [{"params": base_model.modnet.parameters(), "lr": cfg.lr_calibnet}, {"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}])
+              [{"params": base_model.calibnet.parameters(), "lr": cfg.lr_calibnet}, {"params": base_model.locnet.parameters(), "lr": cfg.lr_locnet}])
     optimizer = torch.optim.AdamW(params, weight_decay=cfg.weight_decay)
     warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=.1, end_factor=1., total_iters=max(1, cfg.warmup_epochs))
     cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, cfg.num_epochs - cfg.warmup_epochs), eta_min=1e-6)
@@ -258,7 +258,7 @@ def main():
     start_epoch, best = 1, float("inf"); log_path = run_dir / "train_log.json"
     if cfg.resume:
         saved = torch.load(cfg.resume, map_location=device, weights_only=False)
-        if cfg.phase == "calibnet": load_component(base_model.modnet, cfg.resume, "modnet", device)
+        if cfg.phase == "calibnet": load_component(base_model.calibnet, cfg.resume, "calibnet", device)
         elif cfg.phase == "locnet": load_component(base_model.locnet, cfg.resume, "locnet", device)
         else: base_model.load_state_dict(_strip(saved["model_state_dict"]), strict=False)
         optimizer.load_state_dict(saved["optimizer_state_dict"]); scheduler.load_state_dict(saved["scheduler_state_dict"])
@@ -274,7 +274,7 @@ def main():
                 if training: optimizer.zero_grad(set_to_none=True)
                 with torch.amp.autocast("cuda", enabled=use_amp):
                     if cfg.phase == "calibnet":
-                        corrected = base_model.modnet(batch[0])
+                        corrected = base_model.calibnet(batch[0])
                         calib = pipeline_criterion.calibration_term(corrected, batch[1])
                         loc = calib * 0
                         loss = calib
@@ -310,7 +310,7 @@ def main():
     plot_losses(history, run_dir / "loss_plot.png")
     if cfg.benchmark_samples > 0 and best_path.is_file():
         saved = torch.load(best_path, map_location=device, weights_only=False)
-        if cfg.phase == "calibnet": load_component(base_model.modnet, best_path, "modnet", device)
+        if cfg.phase == "calibnet": load_component(base_model.calibnet, best_path, "calibnet", device)
         elif cfg.phase == "locnet": load_component(base_model.locnet, best_path, "locnet", device)
         else: base_model.load_state_dict(_strip(saved["model_state_dict"]), strict=False)
         results = benchmark(model, device, cfg.benchmark_samples); _save_json(run_dir / "inference_time.json", results)

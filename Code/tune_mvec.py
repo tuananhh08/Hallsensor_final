@@ -102,7 +102,7 @@ def run_epoch(model, loader, phase, pose_loss, pipeline_loss, optimizer, device)
                 optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda", enabled=device.type == "cuda"):
                 if phase == "calibnet":
-                    corrected = model.modnet(batch[0])
+                    corrected = model.calibnet(batch[0])
                     loss = pipeline_loss.calibration_term(corrected, batch[1])
                 elif phase == "locnet":
                     pred = model.locnet(batch[0])
@@ -153,9 +153,9 @@ def main() -> None:
             train_ds, val_ds, batch_size, args.num_workers, device, args.prefetch_factor,
             args.samples_per_epoch,
         )
-        model = Model(use_modnet=args.phase != "locnet").to(device)
+        model = Model(use_calibnet=args.phase != "locnet").to(device)
         if args.phase == "finetune":
-            load_component(model.modnet, args.calibnet_checkpoint, "modnet", device)
+            load_component(model.calibnet, args.calibnet_checkpoint, "calibnet", device)
             load_component(model.locnet, args.locnet_checkpoint, "locnet", device)
         pose_loss = make_pose_loss(args, scalers, device, trial)
         if args.phase == "finetune":
@@ -165,12 +165,12 @@ def main() -> None:
             lambda_calib, calib_delta = 1.0, 0.05
         pipeline_loss = CalibLocLoss(pose_loss, lambda_calib=lambda_calib, calib_delta=calib_delta).to(device)
         if args.phase == "calibnet":
-            parameters = [{"params": model.modnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 3e-3, log=True)}]
+            parameters = [{"params": model.calibnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 3e-3, log=True)}]
         elif args.phase == "locnet":
             parameters = [{"params": model.locnet.parameters(), "lr": trial.suggest_float("lr_locnet", 1e-5, 3e-3, log=True)}]
         else:
             parameters = [
-                {"params": model.modnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 1e-3, log=True)},
+                {"params": model.calibnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 1e-3, log=True)},
                 {"params": model.locnet.parameters(), "lr": trial.suggest_float("lr_locnet", 1e-5, 3e-3, log=True)},
             ]
         optimizer = torch.optim.AdamW(parameters, weight_decay=trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True))
