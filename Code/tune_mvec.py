@@ -15,7 +15,6 @@ from pathlib import Path
 
 import optuna
 import torch
-import torch.nn.functional as F
 
 from loss_mvec import CalibLocLoss, HuberPoseLossMVec
 from model import Model
@@ -30,8 +29,8 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--raw-voltage", default=str(root / "Grid_data.csv"))
     parser.add_argument("--clean-voltage", default=str(root / "Grid_data_computed.csv"))
     parser.add_argument("--raw-label", default=str(root / "Grid_points_coordinates.csv"))
-    parser.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data.csv"))
-    parser.add_argument("--synthetic-label", default=str(root / "synthetic_grid_coordinates.csv"))
+    parser.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data2.csv"))
+    parser.add_argument("--synthetic-label",   default=str(root / "synthetic_grid_coordinates2.csv"))
     parser.add_argument("--calib-physical-csv", default=str(root / "Calibration_Physical_new.csv"))
     parser.add_argument("--calib-alpha-csv", default=str(root / "Calibration_Alpha_new.csv"))
     parser.add_argument("--calibnet-checkpoint", default=None,
@@ -135,7 +134,10 @@ def main() -> None:
     if args.phase == "calibnet":
         train_ds, val_ds = MultiMemmapDataset(arrays[:2], split["train_a"]), MultiMemmapDataset(arrays[:2], split["val_a"])
     elif args.phase == "locnet":
-        train_ds, val_ds = MultiMemmapDataset(arrays[3:], split["train_b"]), MultiMemmapDataset(arrays[3:], split["val_b"])
+        train_ds, val_ds = (
+            MultiMemmapDataset([arrays[3], arrays[4]], split["train_b"]),
+            MultiMemmapDataset([arrays[3], arrays[4]], split["val_b"]),
+        )
     else:
         train_ds, val_ds = MultiMemmapDataset(arrays[:3], split["train_a"]), MultiMemmapDataset(arrays[:3], split["val_a"])
     local_db, drive_db = local_dir / f"study_{args.phase}.db", ckpt_dir / f"study_{args.phase}.db"
