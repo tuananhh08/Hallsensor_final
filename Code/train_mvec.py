@@ -507,9 +507,10 @@ def main():
 
     # ------------------------------------------------------------------ #
     # 7. Optional resume                                                   #
-    # ------------------------------------------------------------------ #
     start_epoch, best = 1, float("inf")
-    log_path = run_dir / "train_log.json"
+    log_path = run_dir / f"train_log_{cfg.phase}.json"
+    if not cfg.resume:
+        log_path.unlink(missing_ok=True)
     if cfg.resume:
         saved = torch.load(cfg.resume, map_location=device, weights_only=False)
         if cfg.phase == "calibnet":
@@ -653,10 +654,7 @@ def main():
     # ------------------------------------------------------------------ #
     # 10. Post-training: plot and optional benchmark                       #
     # ------------------------------------------------------------------ #
-    try:
-        history = json.loads(log_path.read_text())
-    except json.JSONDecodeError:
-        history = []
+    plot_losses(history, run_dir / f"loss_plot_{cfg.phase}.png")
     plot_losses(history, run_dir / "loss_plot.png")
 
     if cfg.benchmark_samples > 0 and best_path.is_file():
