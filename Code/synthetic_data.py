@@ -207,14 +207,14 @@ def write_voltage_chunk(
     *,
     write_header: bool,
 ) -> None:
-    """Write voltages rounded and formatted to four decimal places."""
+    """Write voltages rounded and formatted to seven decimal places."""
     df = pd.DataFrame(voltages, columns=VOLT_COLUMNS)
     df.to_csv(
         path,
         mode="w" if write_header else "a",
         header=write_header,
         index=False,
-        float_format="%.5f",
+        float_format=None,
     )
 
 

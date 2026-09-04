@@ -16,10 +16,10 @@ def parse_args():
         description=("Compute Hall voltages using V = offset + alpha(h) * gain * Bz. "
                      "The default files are the Helix trajectory and its calibrations."))
     parser.add_argument("--input", type=Path,
-                        default=data_dir / "Lissajous_points_coordinates.csv",
+                        default=data_dir / "Grid_points_coordinates.csv",
                         help="Input pose CSV with columns x,y,z,mx,my,mz")
     parser.add_argument("--out", type=Path,
-                        default=data_dir / "Lissajous_data_computed.csv",
+                        default=data_dir / "Grid_data_computed.csv",
                         help="Output voltage CSV with columns sensor_1,...,sensor_64")
     parser.add_argument("--calib_physical_csv", type=Path,
                         default=data_dir / "Calibration_Physical_new.csv",
@@ -109,7 +109,7 @@ def main():
         positions, moments = pose_arrays(frame)
         voltage = compute_voltage(positions, moments, sensor_pos, offset, gain, c0, c1)
         pd.DataFrame(voltage, columns=columns).to_csv(output_path, mode="w" if first else "a",
-                                                        header=first, index=False,float_format="%.5f")
+                                                        header=first, index=False,float_format="%.6f")
         n_rows += len(frame)
         first = False
 
