@@ -562,9 +562,6 @@ def save_results(results, rmses, output_file):
         "nx": results[:, 5],
         "ny": results[:, 6],
         "nz": results[:, 7],
-        "theta_rad": results[:, 8],
-        "phi_rad": results[:, 9],
-        "angle_from_z_deg": np.rad2deg(np.abs(results[:, 8])),
         "rmse": rmses
     })
 
@@ -587,9 +584,7 @@ def save_physical_results(results, output_file):
         "y": results[:, 1],
         "z": results[:, 2],
         "offset": results[:, 3],
-        "gain": results[:, 4],
-        "theta": results[:, 8],
-        "phi": results[:, 9],
+        "gain": results[:, 4]
     })
     df.to_csv(output_file, index=False)
     print(f"\nSaved: {output_file}")

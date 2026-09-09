@@ -8,15 +8,15 @@ from pathlib import Path
 # =============================================================================
 # FILE PATHS  
 # =============================================================================
-BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
-# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
+# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
-PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
-ALPHA_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
+PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_r.csv"
+ALPHA_PATH = BASE_DIR / "Calibration_Alpha_r.csv"
 
 VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
 COORDS_PATH = BASE_DIR / "Helix_points_coordinates_2.csv"
-OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
+OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_alpha(r)_Helix_2"
 
 # VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
 # COORDS_PATH = BASE_DIR / "Helix_points_coordinates_2.csv"
@@ -24,7 +24,7 @@ OUTPUT_DIR = BASE_DIR / "outputs/sensor_plots_new"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-RMSE_SUMMARY_PATH = BASE_DIR / "outputs/rmse_summary_new.csv"
+RMSE_SUMMARY_PATH = BASE_DIR / "outputs/rmse_summary_alpha(r)_Helix_2.csv"
 
 MU0_OVER_4PI = 1e-7
 

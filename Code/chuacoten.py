@@ -10,7 +10,8 @@ from pathlib import Path
 # =============================================================================
 # FILE PATHS  (sua lai cho khop moi truong cua ban)
 # =============================================================================
-BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
 VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
