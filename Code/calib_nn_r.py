@@ -52,9 +52,10 @@ LAMBDA_OFFSET = 750
 # STAGE 2 NN
 # Shared global network: r -> delta_alpha, alpha = 1 + delta_alpha.
 # =============================================================================
-NN_HIDDEN_1 = 16
-NN_HIDDEN_2 = 16
-NN_EPOCHS = 500
+NN_HIDDEN_1 = 32
+NN_HIDDEN_2 = 32
+NN_HIDDEN_3 = 16
+NN_EPOCHS = 200
 NN_LR = 1e-3
 NN_WEIGHT_DECAY = 1e-5
 LAMBDA_SMOOTH = 1e-4

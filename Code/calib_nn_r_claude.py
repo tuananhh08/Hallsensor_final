@@ -65,8 +65,8 @@ LAMBDA_OFFSET = 750
 
 # ---- Stage 2 NN: Optuna search budget ----
 N_OPTUNA_TRIALS = 35
-MAX_EPOCHS = 300
-EARLY_STOP_PATIENCE = 30
+MAX_EPOCHS = 100
+EARLY_STOP_PATIENCE = 20
 
 
 def set_seed(seed: int) -> None:
@@ -278,7 +278,7 @@ def select_splits(robot_positions, m_world, voltage_data,
 # =============================================================================
 
 class DeltaAlphaNet(nn.Module):
-    def __init__(self, hidden_dim: int = 16, n_layers: int = 2,
+    def __init__(self, hidden_dim: int = 16, n_layers: int = 3,
                  input_dim: int = 1, output_scale_init: float = 0.05):
         super().__init__()
         layers = []
@@ -385,7 +385,7 @@ def train_alpha_nn(model, train_loader, val_r, val_gB, val_a, val_v,
 
 
 def optuna_objective(trial, train_tensors, val_tensors, r_mean, r_std):
-    hidden_dim = trial.suggest_categorical("hidden_dim", [16, 32])
+    hidden_dim = trial.suggest_categorical("hidden_dim", [32, 64])
     lr = trial.suggest_float("lr", 1e-4, 1e-1, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-8, 1e-2, log=True)
     delta_l2 = trial.suggest_float("delta_l2", 1e-6, 1e-1, log=True)
@@ -398,7 +398,7 @@ def optuna_objective(trial, train_tensors, val_tensors, r_mean, r_std):
     dataset = TensorDataset(r_tr, gB_tr, a_tr, v_tr)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    model = DeltaAlphaNet(hidden_dim=hidden_dim, n_layers=2, output_scale_init=output_scale_init).to(DEVICE)
+    model = DeltaAlphaNet(hidden_dim=hidden_dim, n_layers=3, output_scale_init=output_scale_init).to(DEVICE)
 
     _, val_rmse = train_alpha_nn(
         model, loader, *val_tensors,
@@ -406,7 +406,7 @@ def optuna_objective(trial, train_tensors, val_tensors, r_mean, r_std):
     )
 
     trial.set_user_attr("hidden_dim", hidden_dim)
-    trial.set_user_attr("n_layers", 2)
+    trial.set_user_attr("n_layers", 3)
     trial.set_user_attr("output_scale_init", output_scale_init)
     return val_rmse
 
@@ -452,7 +452,7 @@ def calibrate_alpha_nn(physical_results, rp_train, mw_train, vd_train,
     loader_full = DataLoader(TensorDataset(r_f, gB_f, a_f, v_f),
                               batch_size=best["batch_size"], shuffle=True)
 
-    final_model = DeltaAlphaNet(hidden_dim=best["hidden_dim"], n_layers=best["n_layers"],
+    final_model = DeltaAlphaNet(hidden_dim=best["hidden_dim"], n_layers=3,
                                  output_scale_init=best["output_scale_init"]).to(DEVICE)
     final_model, final_val_rmse = train_alpha_nn(
         final_model, loader_full, *val_tensors,  # still monitor on the held-out val set
@@ -462,7 +462,7 @@ def calibrate_alpha_nn(physical_results, rp_train, mw_train, vd_train,
 
     meta = {
         "r_mean": float(r_mean), "r_std": float(r_std),
-        "hidden_dim": best["hidden_dim"], "n_layers": best["n_layers"],
+        "hidden_dim": best["hidden_dim"], "n_layers": 3,
         "output_scale_init": best["output_scale_init"],
         "final_val_rmse": final_val_rmse,
     }
