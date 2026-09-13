@@ -10,9 +10,11 @@ Stage 2 : physical parameters frozen. A small neural network learns a
           delta_alpha is the network's output -- initialized/regularized to
           be near zero, so alpha starts at 1 (no correction) and only departs
           from that when the Stage-2 residuals actually demand it.
-          Hyperparameters (hidden width/depth, learning rate, weight decay,
-          output-scale regularization) are tuned with Optuna against a held
-          -out validation split carved out of the Stage-2 points.
+          Architecture is FIXED: 3 hidden layers (64, 64, 32) with SiLU
+          activation. Optuna tunes only the training hyperparameters
+          (learning rate, weight decay, output-scale init, delta_alpha L2,
+          batch size) against a held-out validation split carved out of the
+          Stage-2 points.
 """
 
 import numpy as np
@@ -51,9 +53,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEED = 42
 
 # ---- Stage 1 / Stage 2 split sizes (same philosophy as before) ----
-N_TOTAL_CALIB_SAMPLES = 800
+N_TOTAL_CALIB_SAMPLES = 1500
 N_STAGE1_SAMPLES = 300
-N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES  # 500
+N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES  # 1200
 
 # Stage-2 pool is further split into train/val for the NN + Optuna.
 STAGE2_VAL_FRACTION = 0.2
@@ -65,7 +67,7 @@ LAMBDA_OFFSET = 750
 
 # ---- Stage 2 NN: Optuna search budget ----
 N_OPTUNA_TRIALS = 35
-MAX_EPOCHS = 100
+MAX_EPOCHS = 150
 EARLY_STOP_PATIENCE = 20
 
 
@@ -89,7 +91,7 @@ def dipole_field(r_vec, m_vec):
 
 
 # =============================================================================
-# LOADERS (unchanged from the original script)
+# LOADERS 
 # =============================================================================
 
 def load_sensor_positions(file_path):
@@ -144,7 +146,7 @@ def load_offset_initial_values(file_path, n_sensors):
 
 
 # =============================================================================
-# STAGE 1: PER-SENSOR PHYSICAL PARAMETER FIT (unchanged logic)
+# STAGE 1: PER-SENSOR PHYSICAL PARAMETER FIT 
 # =============================================================================
 
 def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
@@ -275,16 +277,21 @@ def select_splits(robot_positions, m_world, voltage_data,
 # alpha starts near 1 (no correction) at initialization and only departs from
 # 1 where the Stage-2 voltage residuals actually demand it -- same philosophy
 # as the ridge prior (c0->1, c1->0) in the closed-form linear version.
+#
+# Architecture is FIXED (not tuned by Optuna): 3 hidden layers of width
+# 64 -> 64 -> 32, SiLU activation. Only the training hyperparameters below
+# are searched by Optuna.
 # =============================================================================
 
 class DeltaAlphaNet(nn.Module):
-    def __init__(self, hidden_dim: int = 16, n_layers: int = 3,
-                 input_dim: int = 1, output_scale_init: float = 0.05):
+    HIDDEN_DIMS = (64, 64, 32) 
+
+    def __init__(self, input_dim: int = 1, output_scale_init: float = 0.05):
         super().__init__()
         layers = []
         in_dim = input_dim
-        for _ in range(n_layers):
-            layers += [nn.Linear(in_dim, hidden_dim), nn.Tanh()]
+        for hidden_dim in self.HIDDEN_DIMS:
+            layers += [nn.Linear(in_dim, hidden_dim), nn.SiLU()]
             in_dim = hidden_dim
         layers += [nn.Linear(in_dim, 1)]
         self.net = nn.Sequential(*layers)
@@ -367,7 +374,7 @@ def train_alpha_nn(model, train_loader, val_r, val_gB, val_a, val_v,
             v_pred_val = val_a.to(DEVICE) + val_gB.to(DEVICE) * alpha_val
             val_rmse = torch.sqrt(torch.mean((v_pred_val - val_v.to(DEVICE)) ** 2)).item()
 
-        if verbose and epoch % 20 == 0:
+        if verbose and epoch % 5 == 0:
             print(f"  epoch {epoch:4d} | val RMSE = {val_rmse:.6f} V")
 
         if val_rmse < best_val - 1e-9:
@@ -385,9 +392,10 @@ def train_alpha_nn(model, train_loader, val_r, val_gB, val_a, val_v,
 
 
 def optuna_objective(trial, train_tensors, val_tensors, r_mean, r_std):
-    hidden_dim = trial.suggest_categorical("hidden_dim", [32, 64])
+    # Architecture (hidden_dim / n_layers) is fixed -- see DeltaAlphaNet.HIDDEN_DIMS.
+    # Only training hyperparameters are searched.
     lr = trial.suggest_float("lr", 1e-4, 1e-1, log=True)
-    weight_decay = trial.suggest_float("weight_decay", 1e-8, 1e-2, log=True)
+    weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
     delta_l2 = trial.suggest_float("delta_l2", 1e-6, 1e-1, log=True)
     output_scale_init = trial.suggest_float("output_scale_init", 1e-3, 0.3, log=True)
     batch_size = trial.suggest_categorical("batch_size", [32, 64])
@@ -398,15 +406,13 @@ def optuna_objective(trial, train_tensors, val_tensors, r_mean, r_std):
     dataset = TensorDataset(r_tr, gB_tr, a_tr, v_tr)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    model = DeltaAlphaNet(hidden_dim=hidden_dim, n_layers=3, output_scale_init=output_scale_init).to(DEVICE)
+    model = DeltaAlphaNet(output_scale_init=output_scale_init).to(DEVICE)
 
     _, val_rmse = train_alpha_nn(
         model, loader, *val_tensors,
         lr=lr, weight_decay=weight_decay, delta_l2=delta_l2,
     )
 
-    trial.set_user_attr("hidden_dim", hidden_dim)
-    trial.set_user_attr("n_layers", 3)
     trial.set_user_attr("output_scale_init", output_scale_init)
     return val_rmse
 
@@ -426,6 +432,7 @@ def calibrate_alpha_nn(physical_results, rp_train, mw_train, vd_train,
     print(f"\n[Stage 2 / Optuna] {n_trials} trials, "
           f"{len(v_train)} train pairs, {len(v_val)} val pairs, "
           f"r range train=[{r_train.min():.4f}, {r_train.max():.4f}] m")
+    print(f"[Stage 2] Fixed architecture: {DeltaAlphaNet.HIDDEN_DIMS} (SiLU)")
 
     study = optuna.create_study(direction="minimize",
                                  sampler=optuna.samplers.TPESampler(seed=SEED))
@@ -452,8 +459,7 @@ def calibrate_alpha_nn(physical_results, rp_train, mw_train, vd_train,
     loader_full = DataLoader(TensorDataset(r_f, gB_f, a_f, v_f),
                               batch_size=best["batch_size"], shuffle=True)
 
-    final_model = DeltaAlphaNet(hidden_dim=best["hidden_dim"], n_layers=3,
-                                 output_scale_init=best["output_scale_init"]).to(DEVICE)
+    final_model = DeltaAlphaNet(output_scale_init=best["output_scale_init"]).to(DEVICE)
     final_model, final_val_rmse = train_alpha_nn(
         final_model, loader_full, *val_tensors,  # still monitor on the held-out val set
         lr=best["lr"], weight_decay=best["weight_decay"], delta_l2=best["delta_l2"],
@@ -462,7 +468,8 @@ def calibrate_alpha_nn(physical_results, rp_train, mw_train, vd_train,
 
     meta = {
         "r_mean": float(r_mean), "r_std": float(r_std),
-        "hidden_dim": best["hidden_dim"], "n_layers": 3,
+        "hidden_dims": "-".join(map(str, DeltaAlphaNet.HIDDEN_DIMS)),
+        "activation": "SiLU",
         "output_scale_init": best["output_scale_init"],
         "final_val_rmse": final_val_rmse,
     }

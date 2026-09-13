@@ -34,9 +34,9 @@ MU0_OVER_4PI = 1e-7
 # 240 of them go to Stage 1 (physical parameter fit), the remaining 160 go
 # to Stage 2 (alpha(h) fit). No height-based stratification is done anymore
 # -- both stages just see a random cross-section of the working volume.
-N_TOTAL_CALIB_SAMPLES = 600
+N_TOTAL_CALIB_SAMPLES = 1000
 N_STAGE1_SAMPLES = 300
-N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 200
+N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 700
 
 # ----  Stage 1 regularization weights (physical priors)  ----
 # These penalize deviation from the design/nominal sensor pose so the
@@ -353,9 +353,7 @@ def calibrate_single_sensor(
     rmse = np.sqrt(np.mean(result.fun[:n_voltage]**2))
 
     angle_from_vertical = np.rad2deg(abs(theta_opt))
-    print(f"Sensor {sensor_index+1:02d} | RMSE = {rmse:.6f} | "
-          f"Angle from Z = {angle_from_vertical:.2f}° | "
-          f"Dir = [{nx:.3f}, {ny:.3f}, {nz:.3f}]")
+    print(f"Sensor {sensor_index+1:02d} | RMSE = {rmse:.6f}")
 
     return params_extended, rmse
 
