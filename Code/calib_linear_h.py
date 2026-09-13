@@ -654,7 +654,7 @@ def main():
     # (unchanged residual function, dipole model, initial values, bounds)
     # ==================================================================
     print("\n===================================")
-    print("STAGE 1: PHYSICAL PARAMETER FIT (240 points)")
+    print("STAGE 1: PHYSICAL PARAMETER FIT")
     print("===================================")
     results, rmses = run_calibration(
         sensor_positions, rp1, mw1, vd1,
@@ -677,7 +677,7 @@ def main():
     # STAGE 2: Global linear alpha(h) = c0 + c1*h (physical params frozen)
     # ==================================================================
     print("\n===================================")
-    print("STAGE 2: ALPHA(H) CORRECTION (closed-form ridge, 160 points)")
+    print("STAGE 2: ALPHA(H) CORRECTION")
     print("===================================")
     alpha_params = calibrate_alpha_linear(results, rp2, mw2, vd2)
     save_alpha_results(alpha_params, ALPHA_OUTPUT_PATH)

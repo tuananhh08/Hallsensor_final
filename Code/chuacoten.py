@@ -13,11 +13,11 @@ from pathlib import Path
 # BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
 BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
-PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_new.csv"
+PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_r.csv"
 VOLTAGE_PATH = BASE_DIR / "Helix_data_2.csv"
 COORDS_PATH = BASE_DIR / "Helix_points_coordinates_2.csv"
 
-OUTPUT_DIR = BASE_DIR / "outputs" / "alpha_diagnostics"
+OUTPUT_DIR = BASE_DIR / "outputs" / "alpha_diagnostics_helix_2"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MU0_OVER_4PI = 1e-7

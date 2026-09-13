@@ -23,7 +23,7 @@ RMSE_OUTPUT_PATH = BASE_DIR / "Calibration_RMSE_r.png"
 # CONSTANTS / SPLIT
 # =============================================================================
 MU0_OVER_4PI = 1e-7
-N_TOTAL_CALIB_SAMPLES = 600
+N_TOTAL_CALIB_SAMPLES = 1000
 N_STAGE1_SAMPLES = 300
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES
 
@@ -38,8 +38,8 @@ LAMBDA_OFFSET = 750
 # STAGE 2: GLOBAL LINEAR ALPHA(R) = C0 + C1 * R
 # Same ridge + bounded least-squares algorithm as the original Stage 2.
 # =============================================================================
-ALPHA_C0_PRIOR = 0.2
-ALPHA_C1_PRIOR = 6.7
+ALPHA_C0_PRIOR = 0.4
+ALPHA_C1_PRIOR = 7.5
 LAMBDA_ALPHA_C0 = 1e-3
 LAMBDA_ALPHA_C1 = 1e-5
 ALPHA_C0_BOUNDS = (-0.3, 1.3)
@@ -218,10 +218,7 @@ def calibrate_single_sensor(
     n_voltage = voltage_sensor.shape[0]
     rmse = np.sqrt(np.mean(result.fun[:n_voltage] ** 2))
     print(
-        f"Sensor {sensor_index + 1:02d} | RMSE = {rmse:.6f} V | "
-        f"x={params_opt[0]:.6f}, y={params_opt[1]:.6f}, "
-        f"z={params_opt[2]:.6f}, a={params_opt[3]:.6f}, "
-        f"g={params_opt[4]:.6f}"
+        f"Sensor {sensor_index + 1:02d} | RMSE = {rmse:.6f} V"
     )
     return params_extended, rmse
 
