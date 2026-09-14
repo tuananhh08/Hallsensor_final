@@ -29,11 +29,6 @@ ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_new.csv"
 
 MU0_OVER_4PI = 1e-7
 
-# ----  NEW: random-sampling split (replaces the old 3-region stratification) ----
-# 400 points are drawn uniformly at random from the WHOLE input dataset.
-# 240 of them go to Stage 1 (physical parameter fit), the remaining 160 go
-# to Stage 2 (alpha(h) fit). No height-based stratification is done anymore
-# -- both stages just see a random cross-section of the working volume.
 N_TOTAL_CALIB_SAMPLES = 1000
 N_STAGE1_SAMPLES = 300
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 700
