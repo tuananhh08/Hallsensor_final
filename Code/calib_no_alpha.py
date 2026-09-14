@@ -17,7 +17,7 @@ VOLTAGE_DATA_PATH = BASE_DIR / "grid_data.csv"
 
 OFFSET_FILE_PATH = BASE_DIR / "Offset_Sens.csv"
 
-# ---- output (KHONG con Calibration_Alpha.csv vi khong con Stage 2) ----
+# ---- output ----
 PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_no_alpha.csv"
 
 

@@ -32,8 +32,8 @@ import optuna
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026")  # MAC
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026")  # MAC
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"
 ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
@@ -53,9 +53,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 SEED = 42
 
 # ---- Stage 1 / Stage 2 split sizes (same philosophy as before) ----
-N_TOTAL_CALIB_SAMPLES = 1500
+N_TOTAL_CALIB_SAMPLES = 1800
 N_STAGE1_SAMPLES = 300
-N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES  # 1200
+N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES  # 1500
 
 # Stage-2 pool is further split into train/val for the NN + Optuna.
 STAGE2_VAL_FRACTION = 0.2
@@ -67,7 +67,7 @@ LAMBDA_OFFSET = 750
 
 # ---- Stage 2 NN: Optuna search budget ----
 N_OPTUNA_TRIALS = 35
-MAX_EPOCHS = 150
+MAX_EPOCHS = 200
 EARLY_STOP_PATIENCE = 20
 
 
@@ -284,7 +284,7 @@ def select_splits(robot_positions, m_world, voltage_data,
 # =============================================================================
 
 class DeltaAlphaNet(nn.Module):
-    HIDDEN_DIMS = (64, 64, 32) 
+    HIDDEN_DIMS = (32, 64, 64, 64, 32) 
 
     def __init__(self, input_dim: int = 1, output_scale_init: float = 0.05):
         super().__init__()
