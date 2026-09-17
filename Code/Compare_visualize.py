@@ -2464,7 +2464,7 @@ def main():
 import argparse
 import torch
 import torch.nn as nn
-
+from pathlib import Path
 
 PHYSICS_FEATURE_NAMES = (
     "dx", "dy", "dz", "r", "Bx", "By", "Bz", "Bmag", "cos_theta_m"
@@ -2481,7 +2481,7 @@ TRAJECTORY_FILES = {
 
 
 class PhysicsDeltaAlphaNet(nn.Module):
-    """Architecture used by calib_nn_h.py for the 9 physics features."""
+    """Architecture for the 9 physics features."""
 
     def __init__(self):
         super().__init__()
@@ -2575,16 +2575,37 @@ def evaluate_trajectory(trajectory_name, data_dir, physical_df, model,
     stage1, stage2, alpha, delta = predict_physics_feature_voltage(
         physical_df, positions, moments, model, feature_mean, feature_std, device)
     err1, err2 = stage1 - voltage, stage2 - voltage
+    plot_dir = output_dir / f"sensor_plots_{trajectory_name}_physics_feature_nn"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    sample_idx = np.arange(voltage.shape[0])
     rows = []
     for sensor_index in range(voltage.shape[1]):
+        stage1_rmse = float(np.sqrt(np.mean(err1[:, sensor_index] ** 2)))
+        stage2_rmse = float(np.sqrt(np.mean(err2[:, sensor_index] ** 2)))
         rows.append({"trajectory": trajectory_name, "record_type": "sensor",
                      "sensor_index": sensor_index + 1,
-                     "stage1_rmse_V": float(np.sqrt(np.mean(err1[:, sensor_index] ** 2))),
+                     "stage1_rmse_V": stage1_rmse,
                      "stage1_mae_V": float(np.mean(np.abs(err1[:, sensor_index]))),
-                     "stage2_rmse_V": float(np.sqrt(np.mean(err2[:, sensor_index] ** 2))),
+                     "stage2_rmse_V": stage2_rmse,
                      "stage2_mae_V": float(np.mean(np.abs(err2[:, sensor_index]))),
                      "alpha_mean": float(alpha[:, sensor_index].mean()),
                      "delta_alpha_mean": float(delta[:, sensor_index].mean())})
+
+        # Plot comparision
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(sample_idx, voltage[:, sensor_index], label="V measured", linewidth=1.0)
+        ax.plot(sample_idx, stage1[:, sensor_index], label="Dipole / Stage 1", linewidth=0.9,
+                linestyle="--")
+        ax.plot(sample_idx, stage2[:, sensor_index], label="Computed / Stage 1 + NN", linewidth=1.0)
+        ax.set_xlabel("Sample index")
+        ax.set_ylabel("Voltage (V)")
+        ax.set_title(f"{trajectory_name.title()} | Sensor {sensor_index + 1:02d} | "
+                     f"RMSE: Stage 1={stage1_rmse:.6f} V, Stage 1+NN={stage2_rmse:.6f} V")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(plot_dir / f"sensor_{sensor_index + 1:02d}.png", dpi=120)
+        plt.close(fig)
     rows.append({"trajectory": trajectory_name, "record_type": "overall", "sensor_index": "ALL",
                  "stage1_rmse_V": float(np.sqrt(np.mean(err1 ** 2))),
                  "stage1_mae_V": float(np.mean(np.abs(err1))),
@@ -2595,7 +2616,8 @@ def evaluate_trajectory(trajectory_name, data_dir, physical_df, model,
     pd.DataFrame(rows).to_csv(output_path, index=False)
     overall = rows[-1]
     print(f"{trajectory_name:10s} | Stage 1 RMSE={overall['stage1_rmse_V']:.6f} V | "
-          f"Stage 1+NN RMSE={overall['stage2_rmse_V']:.6f} V | saved {output_path.name}")
+          f"Stage 1+NN RMSE={overall['stage2_rmse_V']:.6f} V | "
+          f"saved {output_path.name} + 64 plots")
     return overall
 
 
