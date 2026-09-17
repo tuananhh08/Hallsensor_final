@@ -761,7 +761,7 @@ def main():
     voltage_data = voltage_data[:n_samples]
 
     print("\n===================================")
-    print("SAMPLING: Stage1 / Stage2-train / Stage2-val / Stage2-test split (seeded)")
+    print("SAMPLING: Stage1 / Stage2-train / Stage2-val / Stage2-test split")
     print("===================================")
     (s1_idx, rp1, mw1, vd1), (s2t_idx, rp2t, mw2t, vd2t), \
         (s2v_idx, rp2v, mw2v, vd2v), (s2te_idx, rp2te, mw2te, vd2te) = \

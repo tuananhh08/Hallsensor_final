@@ -8,8 +8,8 @@ from scipy.optimize import lsq_linear
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"   #tọa độ sensors gốc
 
@@ -354,7 +354,7 @@ def calibrate_single_sensor(
 
 
 # =============================================================================
-# FULL CALIBRATION  (unchanged)
+# FULL CALIBRATION 
 # =============================================================================
 
 def run_calibration(
@@ -391,12 +391,7 @@ def run_calibration(
 
 
 # =============================================================================
-# NEW: RANDOM 400-POINT SAMPLING -> STAGE 1 (240) / STAGE 2 (160) SPLIT
-# =============================================================================
-# Replaces select_region_samples() + select_stage1_calibration_set() from
-# the region-based script. No height stratification anymore -- just draw
-# N_TOTAL_CALIB_SAMPLES uniformly at random from the whole dataset, then
-# split into a Stage 1 chunk and a Stage 2 chunk.
+# STAGE 1 / STAGE 2 SPLIT
 # =============================================================================
 
 def select_stage1_stage2_split(
@@ -444,8 +439,7 @@ def select_stage1_stage2_split(
 # =============================================================================
 # NEW: STAGE 2 - GLOBAL LINEAR ALPHA(H) = C0 + C1*H  (closed-form ridge)
 # =============================================================================
-# Replaces calibrate_alpha_by_region(). Instead of one constant alpha per
-# height region, we fit a single alpha(h) = c0 + c1*h shared across ALL
+# one constant alpha per height region, we fit a single alpha(h) = c0 + c1*h shared across ALL
 # sensors (pooled least squares, same pooling philosophy as the old
 # region-closed-form). Since alpha(h) is LINEAR in (c0, c1), the model
 #

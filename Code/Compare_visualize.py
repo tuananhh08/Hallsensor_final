@@ -2461,6 +2461,10 @@
 #   --calibration-dir D:\path\to\calibration_outputs ^
 #   --data-dir Dataset\Dataset --trajectories all
 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
 import argparse
 import torch
 import torch.nn as nn
@@ -2478,7 +2482,7 @@ TRAJECTORY_FILES = {
     "lissajous": ("Lissajous_points_coordinates.csv", "Lissajous_data.csv"),
     "random": ("Random_points_coordinates.csv", "Random_data.csv"),
 }
-
+MU0_OVER_4PI = 1e-7
 
 class PhysicsDeltaAlphaNet(nn.Module):
     """Architecture for the 9 physics features."""
@@ -2497,6 +2501,95 @@ class PhysicsDeltaAlphaNet(nn.Module):
     def forward(self, x_norm):
         return (self.net(x_norm) * self.output_scale).squeeze(-1)
 
+def load_voltage_data(path):
+    """
+    Load measured voltage.
+
+    Rows    = samples
+    Columns = sensors
+    """
+
+    df = pd.read_csv(path)
+
+    voltage = df.values.astype(float)
+
+    print(
+        f"\nLoaded voltage data: "
+        f"{voltage.shape}"
+    )
+
+    return voltage, list(df.columns)
+
+def load_robot_pose(path):
+    """
+    Expected columns:
+
+        x
+        y
+        z
+        mx
+        my
+        mz
+
+    Position:
+        (N, 3)
+
+    Magnetic moment:
+        (N, 3)
+
+    The magnetic moment is normalized.
+    """
+
+    df = pd.read_csv(path)
+
+    required_columns = [
+        "x",
+        "y",
+        "z",
+        "mx",
+        "my",
+        "mz"
+    ]
+
+    for col in required_columns:
+        if col not in df.columns:
+            raise ValueError(
+                f"Missing column '{col}' "
+                f"in {path.name}"
+            )
+
+    positions = df[
+        ["x", "y", "z"]
+    ].values.astype(float)
+
+    m_world = df[
+        ["mx", "my", "mz"]
+    ].values.astype(float)
+
+    norm = np.linalg.norm(
+        m_world,
+        axis=1,
+        keepdims=True
+    )
+
+    if np.any(norm < 1e-12):
+        raise ValueError(
+            "Found zero magnetic-moment vector."
+        )
+
+    m_world = m_world / norm
+
+    print(
+        f"Loaded robot positions: "
+        f"{positions.shape}"
+    )
+
+    print(
+        f"Loaded magnetic orientations: "
+        f"{m_world.shape}"
+    )
+
+    return positions, m_world
 
 def torch_dipole_field_compare(r_vec, m_vec):
     """Same dipole formula as the calibration forward model; inputs are (..., 3)."""
@@ -2619,6 +2712,49 @@ def evaluate_trajectory(trajectory_name, data_dir, physical_df, model,
           f"Stage 1+NN RMSE={overall['stage2_rmse_V']:.6f} V | "
           f"saved {output_path.name} + 64 plots")
     return overall
+
+def load_physical_calib(path):
+    """
+    Load Stage-1 physical calibration.
+
+    Expected columns:
+        sensor_index
+        x
+        y
+        z
+        offset
+        gain
+    """
+
+    df = pd.read_csv(path)
+
+    df = (
+        df
+        .sort_values("sensor_index")
+        .reset_index(drop=True)
+    )
+
+    required_columns = [
+        "sensor_index",
+        "x",
+        "y",
+        "z",
+        "offset",
+        "gain"
+    ]
+
+    for col in required_columns:
+        if col not in df.columns:
+            raise ValueError(
+                f"Missing column '{col}' in {path.name}"
+            )
+
+    print(
+        f"Loaded physical calibration: "
+        f"{df.shape[0]} sensors"
+    )
+
+    return df
 
 
 def physics_feature_compare_main():
