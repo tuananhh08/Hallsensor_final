@@ -1,5 +1,5 @@
 """
-2-stage calibration framework (CLI version, for `git clone` + Colab `!python ...`)
+2-stage calibration framework 
 ------------------------------------------------------------------------------
 Stage 1 : per-sensor physical parameters (x, y, z, offset, gain), fit via
           scipy.optimize.least_squares (dipole model, bounded trust-region,
@@ -738,7 +738,7 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    physical_output_path = output_dir / "Calibration_Physical_NN_h.csv"
+    physical_output_path = output_dir / "Calibration_Physical_NN.csv"
     alpha_nn_output_path = output_dir / "Calibration_AlphaNN_physics.pt"
     alpha_nn_meta_path = output_dir / "Calibration_AlphaNN_physics_meta.csv"
     stage1_rmse_plot_path = output_dir / "stage1_rmse.png"
