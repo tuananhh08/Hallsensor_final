@@ -2635,7 +2635,7 @@ def physics_feature_compare_main():
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     output_dir = args.output_dir or args.calibration_dir / "trajectory_rmse_physics_feature_nn"
     output_dir.mkdir(parents=True, exist_ok=True)
-    physical_path = args.calibration_dir / "Calibration_Physical_NN_h.csv"
+    physical_path = args.calibration_dir / "Calibration_Physical_NN.csv"
     checkpoint_path = args.calibration_dir / "Calibration_AlphaNN_physics.pt"
     if not physical_path.is_file() or not checkpoint_path.is_file():
         raise FileNotFoundError("Expected calibration files were not found: "
