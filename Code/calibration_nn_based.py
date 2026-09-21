@@ -174,6 +174,7 @@ def load_sensor_positions(file_path):
     df = pd.read_csv(file_path)
     sensor_positions = df.values
     print(f"Loaded sensor positions: {sensor_positions.shape}")
+    
     return sensor_positions
 
 
@@ -201,6 +202,7 @@ def load_voltage_data(file_path):
     df = pd.read_csv(file_path)
     voltage = df.values
     print(f"Loaded voltage data: {voltage.shape}")
+    
     return voltage
 
 
@@ -235,6 +237,7 @@ def load_offset_initial_values(file_path, n_sensors):
         raise ValueError("Column offset_a_V contains missing or non-finite values.")
 
     print(f"Loaded per-sensor offset initial values: {offset_initial_values.shape}")
+    
     return offset_initial_values
 
 
@@ -369,6 +372,7 @@ def fit_voltage_normalization(voltage_train):
     mean = np.mean(voltage_train, axis=0)
     std = np.std(voltage_train, axis=0)
     std = np.maximum(std, 1e-8)
+    
     return mean.astype(np.float32), std.astype(np.float32)
 
 
@@ -517,6 +521,7 @@ def huber_voltage_loss(voltage_pred, voltage_raw, delta):
     quadratic = torch.minimum(
         abs_error, torch.tensor(delta, device=error.device, dtype=error.dtype))
     linear = abs_error - quadratic
+    
     return (0.5 * quadratic**2 + delta * linear).mean()
 
 
@@ -524,6 +529,7 @@ def stage2_loss(voltage_pred, voltage_raw, delta_alpha, lambda_alpha, huber_delt
     loss_voltage = huber_voltage_loss(voltage_pred, voltage_raw, huber_delta_v)
     loss_alpha = torch.mean(delta_alpha**2)
     total_loss = loss_voltage + lambda_alpha * loss_alpha
+    
     return total_loss, loss_voltage, loss_alpha
 
 
@@ -728,6 +734,7 @@ def optuna_objective(trial, train_data, val_data, frozen_phys, cfg, device):
     )
 
     trial.set_user_attr("best_epoch", best_epoch)
+    
     return val_rmse
 
 
