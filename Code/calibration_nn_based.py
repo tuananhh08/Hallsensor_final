@@ -93,7 +93,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "Created if it doesn't exist.")
 
     # ---- Stage 1 / Stage 2 split sizes ----
-    p.add_argument("--n_total_samples", type=int, default=2000,
+    p.add_argument("--n_total_samples", type=int, default=3000,
                     help="Total number of (robot_pose, voltage) rows drawn "
                          "at random for calibration (Stage1 + Stage2 pool).")
     p.add_argument("--n_stage1_samples", type=int, default=400,
@@ -758,11 +758,11 @@ def calibrate_stage2(train_data, val_data, test_data, physical_results, cfg, dev
     print("===================================")
     print(f"Fixed architecture: {N_SENSORS} -> {cfg['hidden_dim']} -> "
           f"{cfg['n_residual_blocks']} residual blocks (dim={cfg['hidden_dim']}) "
-          f"-> {N_SENSORS}, batch_size={cfg['batch_size']} (NOT tuned)")
+          f"-> {N_SENSORS}, batch_size={cfg['batch_size']}")
     print(f"{cfg['n_trials']} trials over [lr, weight_decay, lambda_alpha, "
           f"output_scale_init] | train={len(rp_train)} | "
           f"val={len(val_data[0])} | test={len(test_data[0])} "
-          f"(held out, untouched until the end)")
+          )
 
     study = optuna.create_study(direction="minimize",
                                  sampler=optuna.samplers.TPESampler(seed=cfg["seed"]))
