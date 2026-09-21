@@ -98,14 +98,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "Created if it doesn't exist.")
 
     # ---- Stage 1 / Stage 2 split sizes ----
-    p.add_argument("--n_total_samples", type=int, default=1800,
+    p.add_argument("--n_total_samples", type=int, default=1500,
                     help="Total number of (robot_pose, voltage) rows drawn "
                          "at random for calibration (Stage1 + Stage2 pool).")
     p.add_argument("--n_stage1_samples", type=int, default=300,
                     help="How many of --n_total_samples go to Stage 1 "
                          "(physical parameter fit). The rest form the "
                          "Stage 2 pool (train/val/test).")
-    p.add_argument("--val_fraction", type=float, default=0.2,
+    p.add_argument("--val_fraction", type=float, default=0.15,
                     help="Fraction of the Stage-2 pool (after removing the "
                          "test split) used for Optuna/early-stopping validation.")
     p.add_argument("--test_fraction", type=float, default=0.15,
@@ -126,7 +126,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # ---- Stage 2 NN: Optuna search budget ----
     p.add_argument("--n_trials", type=int, default=35,
                     help="Number of Optuna trials for Stage-2 hyperparameter search.")
-    p.add_argument("--max_epochs", type=int, default=200,
+    p.add_argument("--max_epochs", type=int, default=150,
                     help="Max training epochs per Optuna trial / model-selection run.")
     p.add_argument("--patience", type=int, default=15,
                     help="Early-stopping patience (epochs without val improvement).")
@@ -208,7 +208,7 @@ def load_offset_initial_values(file_path, n_sensors):
 
 
 # =============================================================================
-# STAGE 1: PER-SENSOR PHYSICAL PARAMETER FIT
+# STAGE 1: PER-SENSOR PHYSICAL PARAMETER CALIBRATION
 # =============================================================================
 
 def sensor_residuals(params, robot_positions, m_world, voltage_sensor,

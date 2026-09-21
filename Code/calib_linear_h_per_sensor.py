@@ -19,8 +19,8 @@ VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
 OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
 
 # ---- outputs for the 2-stage calibration framework ----
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_h.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_h.csv"
+PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_h_per_sensor.csv"
+ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_h_per_sensor.csv"
 
 
 # =============================================================================
@@ -29,7 +29,7 @@ ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_h.csv"
 
 MU0_OVER_4PI = 1e-7
 
-N_TOTAL_CALIB_SAMPLES = 1000
+N_TOTAL_CALIB_SAMPLES = 1200
 N_STAGE1_SAMPLES = 300
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 700
 
@@ -44,21 +44,25 @@ LAMBDA_POS = 2000    # position prior weight (x, y, z)   [1/m^2 scale]
 LAMBDA_GAIN = 9e-3   # gain prior weight                  [1/(V/T)^2 scale]
 LAMBDA_OFFSET = 750  # offset prior weight                [dimensionless]
 
-# ----  NEW: Stage 2 alpha(h) = c0 + c1*h regularization (ridge priors)  ----
-# alpha(h) replaces the old "one constant alpha per region" correction with
-# a single GLOBAL linear function of height h, shared across all 64 sensors
-# (pooled fit, same pooling philosophy as the old per-region closed form).
-# The ridge priors below pull (c0, c1) toward (1, 0) -- i.e. "no correction,
-# no height dependence" -- so c1 can only pick up a nonzero slope when the
-# Stage-2 voltage residuals actually demand it, instead of silently
-# absorbing leftover gain/offset error from Stage 1.
+# ----  Stage 2 alpha_s(h) = c0_s + c1_s*h regularization (ridge priors)  ----
+# DIFFERENCE vs calib_linear_h.py: alpha is no longer ONE global linear
+# function shared by all sensors. Here every sensor s gets its OWN pair
+# (c0_s, c1_s), i.e. 64 independent 2-parameter fits, each using only the
+# Stage-2 samples of that sensor. Everything else (model, ridge priors,
+# bounds, solver) is kept exactly the same as the global version.
+#
+# The ridge priors below pull (c0_s, c1_s) toward (ALPHA_C0_PRIOR,
+# ALPHA_C1_PRIOR) so c1_s can only pick up a nonzero slope when that
+# sensor's Stage-2 voltage residuals actually demand it, instead of
+# silently absorbing leftover gain/offset error from Stage 1.
 #
 # IMPORTANT: these two lambdas are NOT calibrated for your actual data yet.
 # Same as LAMBDA_POS/LAMBDA_GAIN above, you should sweep them (see the
 # L-curve sweep pattern later in the old script) and pick the elbow: small
-# enough that RMSE isn't hurt, large enough that c1 stays physically
+# enough that RMSE isn't hurt, large enough that c1_s stays physically
 # plausible (i.e. doesn't swing wildly if you re-run with a different
-# random 400-point draw).
+# random draw). Note that per-sensor fitting uses ~64x fewer points per
+# fit than the pooled global fit, so the priors matter MORE here.
 
 ALPHA_C0_PRIOR = 0.2
 ALPHA_C1_PRIOR = 6.7
@@ -437,22 +441,26 @@ def select_stage1_stage2_split(
 
 
 # =============================================================================
-# NEW: STAGE 2 - GLOBAL LINEAR ALPHA(H) = C0 + C1*H  (closed-form ridge)
+# STAGE 2 - PER-SENSOR LINEAR ALPHA_s(H) = C0_s + C1_s*H  (64 fits)
 # =============================================================================
-# one constant alpha per height region, we fit a single alpha(h) = c0 + c1*h shared across ALL
-# sensors (pooled least squares, same pooling philosophy as the old
-# region-closed-form). Since alpha(h) is LINEAR in (c0, c1), the model
+# DIFFERENCE vs calib_linear_h.py: instead of pooling every (sample, sensor)
+# pair into ONE regression that yields a single global (c0, c1), we run the
+# SAME regression 64 times -- once per sensor -- using only that sensor's
+# column of the Stage-2 data. Each sensor therefore gets its own
+# alpha_s(h) = c0_s + c1_s*h.
 #
-#     V[i,s] - a[s] = g[s] * B_proj[i,s] * (c0 + c1 * h[i,s])
-#                    = c0 * (g*B)[i,s]  +  c1 * (g*B*h)[i,s]
+# For sensor s the model is still linear in (c0_s, c1_s):
 #
-# is still ordinary linear regression -> solved via ridge-regularized
-# normal equations, no scipy least_squares/bounds needed. The ridge priors
-# (c0 -> 1, c1 -> 0) keep c1 from silently absorbing residual gain/offset
-# error left over from Stage 1.
+#     V[i,s] - a[s] = g[s] * B_proj[i,s] * (c0_s + c1_s * h[i,s])
+#                    = c0_s * (g*B)[i,s]  +  c1_s * (g*B*h)[i,s]
+#
+# -> ridge-regularized linear least squares with bounds, solved with
+# lsq_linear exactly like the global version (the 2 ridge rows are
+# augmented onto the design matrix, same as sensor_residuals does at
+# Stage 1). Only the data fed into the solver changes.
 # =============================================================================
 
-def calibrate_alpha_linear(
+def calibrate_alpha_linear_per_sensor(
         physical_results,
         rp_calib2,
         mw_calib2,
@@ -486,49 +494,64 @@ def calibrate_alpha_linear(
     gB = g[None, :] * B_proj                            # (n_samples, n_sensors)
     v_minus_a = vd_calib2 - a[None, :]                   # V_measured - a
 
-    # ---- Pool ALL (sample, sensor) pairs into one regression ----
-    x_c0 = gB.ravel()                # column for c0
-    x_c1 = (gB * h).ravel()          # column for c1
-    y = v_minus_a.ravel()
-
-    X = np.column_stack([x_c0, x_c1])          # (n_samples*n_sensors, 2)
-
-    # ---- Ridge least squares, VAN CUNG 1 bai toan nhu truoc ----
-    # minimize ||y - X @ theta||^2
-    #          + lambda_c0*(c0 - c0_prior)^2 + lambda_c1*(c1 - c1_prior)^2
-    
-    # NEW: them bounds cho (c0, c1) -> np.linalg.solve (normal equations,
-    # khong bound duoc) khong con dung nua. Thay bang cach augment 2 dong
-    # regularize vao thang ma tran thiet ke (giong het kieu sensor_residuals
-    # o Stage 1 dang lam voi least_squares), roi giai bang lsq_linear -- day
-    # la linear least squares CO bound, thuat toan/objective giu nguyen 100%,
-    # chi khac solver.
-    X_aug = np.vstack([
-        X,
-        [np.sqrt(lambda_c0), 0.0],
-        [0.0, np.sqrt(lambda_c1)],
-    ])
-    y_aug = np.concatenate([
-        y,
-        [np.sqrt(lambda_c0) * c0_prior],
-        [np.sqrt(lambda_c1) * c1_prior],
-    ])
-
     bounds = ([ALPHA_C0_BOUNDS[0], ALPHA_C1_BOUNDS[0]],
               [ALPHA_C0_BOUNDS[1], ALPHA_C1_BOUNDS[1]])
 
-    fit = lsq_linear(X_aug, y_aug, bounds=bounds)
-    c0, c1 = fit.x
+    c0_all = np.zeros(n_sensors)
+    c1_all = np.zeros(n_sensors)
+    rmse_all = np.zeros(n_sensors)
 
-    resid = y - X @ fit.x
-    rmse = np.sqrt(np.mean(resid**2))
+    print(f"\n[Stage 2] Fitting ONE alpha(h) per sensor "
+          f"({n_sensors} independent 2-parameter fits, "
+          f"{n_samples} points each)")
 
-    print(f"\n[Stage 2] alpha(h) = {c0:.6f} + ({c1:.6f}) * h")
-    print(f"  fit from {len(y)} sensor-sample pairs "
-          f"({n_samples} points x {n_sensors} sensors), RMSE = {rmse:.6f} V")
+    # ---- One independent fit per sensor ----
+    for s in range(n_sensors):
+        x_c0 = gB[:, s]                 # column for c0_s
+        x_c1 = gB[:, s] * h[:, s]       # column for c1_s
+        y = v_minus_a[:, s]
+
+        X = np.column_stack([x_c0, x_c1])          # (n_samples, 2)
+
+        # ---- Ridge least squares, VAN CUNG 1 bai toan nhu truoc ----
+        # minimize ||y - X @ theta||^2
+        #          + lambda_c0*(c0 - c0_prior)^2 + lambda_c1*(c1 - c1_prior)^2
+        #
+        # Augment 2 dong regularize vao thang ma tran thiet ke (giong het
+        # kieu sensor_residuals o Stage 1 dang lam voi least_squares), roi
+        # giai bang lsq_linear -- linear least squares CO bound.
+        X_aug = np.vstack([
+            X,
+            [np.sqrt(lambda_c0), 0.0],
+            [0.0, np.sqrt(lambda_c1)],
+        ])
+        y_aug = np.concatenate([
+            y,
+            [np.sqrt(lambda_c0) * c0_prior],
+            [np.sqrt(lambda_c1) * c1_prior],
+        ])
+
+        fit = lsq_linear(X_aug, y_aug, bounds=bounds)
+        c0_s, c1_s = fit.x
+
+        resid = y - X @ fit.x
+        rmse_s = np.sqrt(np.mean(resid**2))
+
+        c0_all[s] = c0_s
+        c1_all[s] = c1_s
+        rmse_all[s] = rmse_s
+
+        print(f"Sensor {s+1:02d} | alpha(h) = {c0_s:.6f} + ({c1_s:.6f}) * h "
+              f"| RMSE = {rmse_s:.6f} V")
+
+    print(f"\n  Mean RMSE = {np.mean(rmse_all):.6f} V")
+    print(f"  Max RMSE  = {np.max(rmse_all):.6f} V")
+    print(f"  Min RMSE  = {np.min(rmse_all):.6f} V")
+    print(f"  c0 range: [{c0_all.min():.6f}, {c0_all.max():.6f}]")
+    print(f"  c1 range: [{c1_all.min():.6f}, {c1_all.max():.6f}]")
     print(f"  h range in Stage-2 set: [{h.min():.4f}, {h.max():.4f}] m")
 
-    return {"c0": c0, "c1": c1, "rmse": rmse}
+    return {"c0": c0_all, "c1": c1_all, "rmse": rmse_all}
 
 
 # =============================================================================
@@ -579,13 +602,15 @@ def save_physical_results(results, output_file):
 
 def save_alpha_results(alpha_params, output_file):
     """
-    NEW: Save Stage 2 alpha(h) = c0 + c1*h coefficients to
-    Calibration_Alpha.csv (2 rows: c0, c1) instead of the old 3
-    per-region constants.
+    Save Stage 2 per-sensor alpha_s(h) = c0_s + c1_s*h coefficients to
+    Calibration_Alpha_per_sensor.csv -- one ROW per sensor
+    (sensor_index, c0, c1, rmse) instead of the old 2-row global file.
     """
     df = pd.DataFrame({
-        "coefficient": ["c0", "c1"],
-        "value": [alpha_params["c0"], alpha_params["c1"]],
+        "sensor_index": np.arange(len(alpha_params["c0"])),
+        "c0": alpha_params["c0"],
+        "c1": alpha_params["c1"],
+        "rmse": alpha_params["rmse"],
     })
     df.to_csv(output_file, index=False)
     print(f"Saved: {output_file}")
@@ -612,7 +637,7 @@ def plot_rmse(rmses):
 
 def main():
     """Main execution function -- 2-stage calibration framework
-    (random 400-point sampling; global linear alpha(h) in Stage 2)"""
+    (random 400-point sampling; PER-SENSOR linear alpha(h) in Stage 2)"""
 
     # Load data
     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
@@ -663,12 +688,13 @@ def main():
     plot_rmse(rmses)
 
     # ==================================================================
-    # STAGE 2: Global linear alpha(h) = c0 + c1*h (physical params frozen)
+    # STAGE 2: Per-sensor linear alpha_s(h) = c0_s + c1_s*h
+    # (physical params frozen)
     # ==================================================================
     print("\n===================================")
-    print("STAGE 2: ALPHA(H) CORRECTION")
+    print("STAGE 2: PER-SENSOR ALPHA(H) CORRECTION")
     print("===================================")
-    alpha_params = calibrate_alpha_linear(results, rp2, mw2, vd2)
+    alpha_params = calibrate_alpha_linear_per_sensor(results, rp2, mw2, vd2)
     save_alpha_results(alpha_params, ALPHA_OUTPUT_PATH)
 
     print("\n===================================")

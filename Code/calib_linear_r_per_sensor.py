@@ -15,15 +15,15 @@ ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
 VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
 OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
 
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_r.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_r.csv"
-RMSE_OUTPUT_PATH = BASE_DIR / "Calibration_RMSE_r.png"
+PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_r_per_sensor.csv"
+ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_r_per_sensor.csv"
+RMSE_OUTPUT_PATH = BASE_DIR / "Calibration_RMSE_r_per_sensor.png"
 
 # =============================================================================
 # CONSTANTS / SPLIT
 # =============================================================================
 MU0_OVER_4PI = 1e-7
-N_TOTAL_CALIB_SAMPLES = 1500
+N_TOTAL_CALIB_SAMPLES = 1200
 N_STAGE1_SAMPLES = 300
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES
 
@@ -35,8 +35,9 @@ LAMBDA_GAIN = 9e-3
 LAMBDA_OFFSET = 750
 
 # =============================================================================
-# STAGE 2: GLOBAL LINEAR ALPHA(R) = C0 + C1 * R
-# Same ridge + bounded least-squares algorithm as the original Stage 2.
+# STAGE 2: PER-SENSOR LINEAR ALPHA_s(R) = C0_s + C1_s * R
+# Same ridge + bounded least-squares algorithm as the original Stage 2,
+# but solved once per sensor instead of once for all sensors pooled.
 # =============================================================================
 ALPHA_C0_PRIOR = 0.4
 ALPHA_C1_PRIOR = 7.5
@@ -287,9 +288,9 @@ def select_stage1_stage2_split(
     return stage1_data, stage2_data
 
 # =============================================================================
-# STAGE 2 GLOBAL LINEAR ALPHA(R)
+# STAGE 2 PER-SENSOR LINEAR ALPHA(R)
 # =============================================================================
-def calibrate_alpha_linear_r(
+def calibrate_alpha_linear_r_per_sensor(
     physical_results,
     rp_calib2,
     mw_calib2,
@@ -318,42 +319,64 @@ def calibrate_alpha_linear_r(
     gB = g[None, :] * B_proj
     v_minus_a = vd_calib2 - a[None, :]
 
-    x_c0 = gB.ravel()
-    x_c1 = (gB * r_distance).ravel()
-    y = v_minus_a.ravel()
-    X = np.column_stack([x_c0, x_c1])
-
-    X_aug = np.vstack([
-        X,
-        [np.sqrt(lambda_c0), 0.0],
-        [0.0, np.sqrt(lambda_c1)],
-    ])
-    y_aug = np.concatenate([
-        y,
-        [np.sqrt(lambda_c0) * c0_prior],
-        [np.sqrt(lambda_c1) * c1_prior],
-    ])
     bounds = (
         [ALPHA_C0_BOUNDS[0], ALPHA_C1_BOUNDS[0]],
         [ALPHA_C0_BOUNDS[1], ALPHA_C1_BOUNDS[1]],
     )
-    fit = lsq_linear(X_aug, y_aug, bounds=bounds)
-    c0, c1 = fit.x
-    resid = y - X @ fit.x
-    rmse = np.sqrt(np.mean(resid ** 2))
 
-    print("\n[Stage 2] GLOBAL LINEAR CORRECTION")
-    print(f"  alpha(r) = {c0:.6f} + ({c1:.6f}) * r")
-    print(f"  Fit pairs = {len(y)}")
-    print(f"  RMSE = {rmse:.6f} V")
+    c0_all = np.zeros(n_sensors)
+    c1_all = np.zeros(n_sensors)
+    rmse_all = np.zeros(n_sensors)
+    r_min_all = np.zeros(n_sensors)
+    r_max_all = np.zeros(n_sensors)
+
+    for s in range(n_sensors):
+        x_c0 = gB[:, s]
+        x_c1 = gB[:, s] * r_distance[:, s]
+        y = v_minus_a[:, s]
+        X = np.column_stack([x_c0, x_c1])
+
+        X_aug = np.vstack([
+            X,
+            [np.sqrt(lambda_c0), 0.0],
+            [0.0, np.sqrt(lambda_c1)],
+        ])
+        y_aug = np.concatenate([
+            y,
+            [np.sqrt(lambda_c0) * c0_prior],
+            [np.sqrt(lambda_c1) * c1_prior],
+        ])
+        fit = lsq_linear(X_aug, y_aug, bounds=bounds)
+        c0_s, c1_s = fit.x
+        resid = y - X @ fit.x
+        rmse_s = np.sqrt(np.mean(resid ** 2))
+
+        c0_all[s] = c0_s
+        c1_all[s] = c1_s
+        rmse_all[s] = rmse_s
+        r_min_all[s] = r_distance[:, s].min()
+        r_max_all[s] = r_distance[:, s].max()
+
+        print(
+            f"Sensor {s + 1:02d} | alpha(r) = {c0_s:.6f} + ({c1_s:.6f}) * r "
+            f"| RMSE = {rmse_s:.6f} V"
+        )
+
+    print("\n[Stage 2] PER-SENSOR LINEAR CORRECTION")
+    print(f"  Fits = {n_sensors} sensors x {n_samples} points each")
+    print(f"  Mean RMSE = {np.mean(rmse_all):.6f} V")
+    print(f"  Min RMSE  = {np.min(rmse_all):.6f} V")
+    print(f"  Max RMSE  = {np.max(rmse_all):.6f} V")
+    print(f"  c0 range = [{c0_all.min():.6f}, {c0_all.max():.6f}]")
+    print(f"  c1 range = [{c1_all.min():.6f}, {c1_all.max():.6f}]")
     print(f"  r range = [{r_distance.min():.6f}, {r_distance.max():.6f}] m")
 
     return {
-        "c0": c0,
-        "c1": c1,
-        "rmse": rmse,
-        "r_min": r_distance.min(),
-        "r_max": r_distance.max(),
+        "c0": c0_all,
+        "c1": c1_all,
+        "rmse": rmse_all,
+        "r_min": r_min_all,
+        "r_max": r_max_all,
     }
 
 # =============================================================================
@@ -374,8 +397,10 @@ def save_physical_results(results, rmses, output_file):
 
 def save_alpha_results(alpha_params, output_file):
     df = pd.DataFrame({
-        "coefficient": ["c0", "c1"],
-        "value": [alpha_params["c0"], alpha_params["c1"]],
+        "sensor_index": np.arange(len(alpha_params["c0"])),
+        "c0": alpha_params["c0"],
+        "c1": alpha_params["c1"],
+        "rmse": alpha_params["rmse"],
     })
     df.to_csv(output_file, index=False)
     print(f"Saved Stage 2: {output_file}")
@@ -398,7 +423,7 @@ def plot_rmse(rmses, output_file):
 def main():
     print("\n===================================")
     print("2-STAGE CALIBRATION")
-    print("Version 1: GLOBAL LINEAR ALPHA(R)")
+    print("Version 2: PER-SENSOR LINEAR ALPHA(R)")
     print("===================================\n")
 
     sensor_positions = load_sensor_positions(SENSOR_POSITIONS_PATH)
@@ -454,10 +479,10 @@ def main():
     plot_rmse(rmses, RMSE_OUTPUT_PATH)
 
     print("\n===================================")
-    print("STAGE 2: GLOBAL LINEAR ALPHA(R)")
+    print("STAGE 2: PER-SENSOR LINEAR ALPHA(R)")
     print("===================================\n")
 
-    alpha_params = calibrate_alpha_linear_r(
+    alpha_params = calibrate_alpha_linear_r_per_sensor(
         results,
         rp2,
         mw2,
