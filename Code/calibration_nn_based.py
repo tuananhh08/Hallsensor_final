@@ -93,7 +93,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "Created if it doesn't exist.")
 
     # ---- Stage 1 / Stage 2 split sizes ----
-    p.add_argument("--n_total_samples", type=int, default=3000,
+    p.add_argument("--n_total_samples", type=int, default=3200,
                     help="Total number of (robot_pose, voltage) rows drawn "
                          "at random for calibration (Stage1 + Stage2 pool).")
     p.add_argument("--n_stage1_samples", type=int, default=400,
@@ -122,7 +122,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--hidden_dim", type=int, default=128,
                     help="Fixed hidden width: 64 -> hidden_dim -> "
                          "[n_residual_blocks residual blocks] -> 64.")
-    p.add_argument("--n_residual_blocks", type=int, default=3,
+    p.add_argument("--n_residual_blocks", type=int, default=2,
                     help="Fixed number of residual blocks (each hidden_dim -> hidden_dim).")
     p.add_argument("--batch_size", type=int, default=64,
                     help="Fixed training batch size (not tuned by Optuna).")
@@ -365,7 +365,7 @@ def select_stage1_stage2_split(robot_positions, m_world, voltage_data,
 
 
 # =============================================================================
-# STAGE 2 -- NORMALIZATION (train-only)
+# STAGE 2 -- NORMALIZATION 
 # =============================================================================
 
 def fit_voltage_normalization(voltage_train):
