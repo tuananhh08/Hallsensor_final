@@ -435,23 +435,23 @@ from pathlib import Path
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final") #MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
 
 # Stage-1 physical parameters (output cua calibration_nn_based.py)
-PHYSICAL_PATH = BASE_DIR / "calibration_nn_based_outputs" / "Calibration_Physical_Residual_NN.csv"
+PHYSICAL_PATH = BASE_DIR /  "Calibration_Physical_Residual_NN.csv"
 
 # Stage-2 ResidualNN checkpoint (output cua calibration_nn_based.py)
-STAGE2_CKPT_PATH = BASE_DIR / "calibration_nn_based_outputs" / "Calibration_Stage2_Residual_NN.pt"
+STAGE2_CKPT_PATH = BASE_DIR / "Calibration_Stage2_Residual_NN.pt"
 
 # Du lieu test (voltage + robot pose)
-VOLTAGE_PATH  = BASE_DIR / "Grid_data.csv"
-COORDS_PATH   = BASE_DIR / "Grid_points_coordinates.csv"
+VOLTAGE_PATH  = BASE_DIR / "Helix_data_2.csv"
+COORDS_PATH   = BASE_DIR / "Helix_points_coordinates_2.csv"
 
-OUTPUT_DIR    = BASE_DIR / "outputs" / "visualize_nn_based_calibration_alpha_per_sensor_Grid"
+OUTPUT_DIR    = BASE_DIR / "outputs" / "visualize_nn_based_calibration_alpha_per_sensor_Helix_2"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-RMSE_SUMMARY_PATH = BASE_DIR / "outputs" / "rmse_summary_nn_based_calibration_alpha_Grid.csv"
+RMSE_SUMMARY_PATH = BASE_DIR / "outputs" / "rmse_summary_nn_based_calibration_alpha_Helix_2.csv"
 
 MU0_OVER_4PI = 1e-7
 N_SENSORS    = 64
@@ -590,7 +590,7 @@ def nn_compute_all_vpred(physical_df, robot_positions, m_world,
         5. V_pred_s = offset_s + gain_s * Bz_s * alpha_s
     """
     n_samples = robot_positions.shape[0]
-    sensor_dir = np.array([0.0, 0.0, 1.0])  # huong sensor co dinh
+    sensor_dir = np.array([0.0, 0.0, 1.0]) 
 
     # (N, 64)
     Bz_all = np.zeros((n_samples, N_SENSORS), dtype=np.float64)
@@ -678,8 +678,7 @@ def nn_main():
         ax.set_xlabel("Sample index")
         ax.set_ylabel("Voltage (V)")
         ax.set_title(
-            f"Sensor {s+1:02d} | NN-based alpha(V_raw) "
-            f"| delta_alpha: mean={da_mean:.4f}, std={da_std:.4f} "
+            f"Sensor {s+1:02d}"
             f"| RMSE = {rmse_s:.6f} V"
         )
         ax.legend()
@@ -688,8 +687,7 @@ def nn_main():
         fig.savefig(OUTPUT_DIR / f"sensor_{s+1:02d}.png", dpi=120)
         plt.close(fig)
 
-        print(f"Sensor {s+1:02d} | RMSE = {rmse_s:.6f} V "
-              f"| delta_alpha mean={da_mean:.5f} std={da_std:.5f}")
+        print(f"Sensor {s+1:02d} | RMSE = {rmse_s:.6f} V ")
 
     # ---- Overall RMSE ----
     all_v_meas   = np.concatenate(all_v_meas)

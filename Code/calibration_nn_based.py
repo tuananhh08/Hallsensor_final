@@ -674,7 +674,7 @@ def train_alpha_nn(model, train_loader, val_data, frozen_phys, voltage_mean, vol
                 model, voltage_raw, pose, moment, frozen_phys, voltage_mean, voltage_std)
             val_rmse = torch.sqrt(torch.mean((voltage_pred - voltage_raw) ** 2)).item()
 
-        if verbose and epoch % 5 == 0:
+        if verbose and epoch % 2 == 0:
             tag = "val" if early_stop else "val(monitor only)"
             print(f"  epoch {epoch:4d} | {tag} RMSE = {val_rmse:.6f} V | "
                   f"output_scale = {model.output_scale.item():.5f}")
