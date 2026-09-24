@@ -397,32 +397,41 @@ class ResidualBlock(nn.Module):
 # =============================================================================
 # STAGE 2 -- NN ARCHITECTURE 
 # =============================================================================
-
 class ResidualNN(nn.Module):
-
-    def __init__(self, input_dim, hidden_dim, output_dim, n_blocks,
-                 output_scale_init=0.05):
+    def __init__(
+        self,
+        input_dim,
+        hidden_dim,
+        output_dim,
+        n_blocks=None,
+        output_scale_init=0.05,
+    ):
         super().__init__()
 
-        self.input_layer = nn.Linear(input_dim, hidden_dim)
-        self.input_activation = nn.SiLU()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.SiLU(),
 
-        self.blocks = nn.Sequential(
-            *[ResidualBlock(hidden_dim) for _ in range(n_blocks)]
+            nn.Linear(128, 256),
+            nn.SiLU(),
+
+            nn.Linear(256, 128),
+            nn.SiLU(),
+
+            nn.Linear(128, output_dim),
         )
 
-        self.output_layer = nn.Linear(hidden_dim, output_dim)
+        # Khởi tạo output layer = 0
+        nn.init.zeros_(self.network[-1].weight)
+        nn.init.zeros_(self.network[-1].bias)
 
-        nn.init.zeros_(self.output_layer.weight)
-        nn.init.zeros_(self.output_layer.bias)
-
-        self.output_scale = nn.Parameter(torch.tensor(float(output_scale_init)))
+        self.output_scale = nn.Parameter(
+            torch.tensor(float(output_scale_init))
+        )
 
     def forward(self, voltage_normalized):
-        x = self.input_layer(voltage_normalized)
-        x = self.input_activation(x)
-        x = self.blocks(x)
-        return self.output_layer(x) * self.output_scale
+        delta_alpha = self.network(voltage_normalized)
+        return delta_alpha * self.output_scale
 
 
 # =============================================================================

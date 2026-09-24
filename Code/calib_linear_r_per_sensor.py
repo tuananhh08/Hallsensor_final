@@ -11,8 +11,8 @@ from scipy.optimize import least_squares, lsq_linear
 BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"
-ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
-VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
+ROBOT_POSE_PATH = BASE_DIR / "Grid_add_Random_points_coordinates.csv"
+VOLTAGE_DATA_PATH = BASE_DIR / "Grid_add_Random_data.csv"
 OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
 
 PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_r_per_sensor.csv"
@@ -23,8 +23,8 @@ RMSE_OUTPUT_PATH = BASE_DIR / "Calibration_RMSE_r_per_sensor.png"
 # CONSTANTS / SPLIT
 # =============================================================================
 MU0_OVER_4PI = 1e-7
-N_TOTAL_CALIB_SAMPLES = 1200
-N_STAGE1_SAMPLES = 300
+N_TOTAL_CALIB_SAMPLES = 3200
+N_STAGE1_SAMPLES = 400
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES
 
 # =============================================================================

@@ -13,9 +13,9 @@ BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"   #tọa độ sensors gốc
 
-ROBOT_POSE_PATH = BASE_DIR / "Grid_points_coordinates.csv"
+ROBOT_POSE_PATH = BASE_DIR / "Grid_add_Random_points_coordinates.csv"
 
-VOLTAGE_DATA_PATH = BASE_DIR / "Grid_data.csv"
+VOLTAGE_DATA_PATH = BASE_DIR / "Grid_add_Random_data.csv"
 OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
 
 # ---- outputs for the 2-stage calibration framework ----
@@ -29,9 +29,9 @@ ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_h.csv"
 
 MU0_OVER_4PI = 1e-7
 
-N_TOTAL_CALIB_SAMPLES = 1000
-N_STAGE1_SAMPLES = 300
-N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 700
+N_TOTAL_CALIB_SAMPLES = 3200
+N_STAGE1_SAMPLES = 400
+N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES   # 2800
 
 # ----  Stage 1 regularization weights (physical priors)  ----
 # These penalize deviation from the design/nominal sensor pose so the

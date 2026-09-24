@@ -98,17 +98,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
                          "Created if it doesn't exist.")
 
     # ---- Stage 1 / Stage 2 split sizes ----
-    p.add_argument("--n_total_samples", type=int, default=1800,
+    p.add_argument("--n_total_samples", type=int, default=3200,
                     help="Total number of (robot_pose, voltage) rows drawn "
                          "at random for calibration (Stage1 + Stage2 pool).")
-    p.add_argument("--n_stage1_samples", type=int, default=300,
+    p.add_argument("--n_stage1_samples", type=int, default=400,
                     help="How many of --n_total_samples go to Stage 1 "
                          "(physical parameter fit). The rest form the "
                          "Stage 2 pool (train/val/test).")
-    p.add_argument("--val_fraction", type=float, default=0.2,
+    p.add_argument("--val_fraction", type=float, default=0.15,
                     help="Fraction of the Stage-2 pool (after removing the "
                          "test split) used for Optuna/early-stopping validation.")
-    p.add_argument("--test_fraction", type=float, default=0.15,
+    p.add_argument("--test_fraction", type=float, default=0.1,
                     help="Fraction of the Stage-2 pool held out as an "
                          "untouched final test set (never used by Optuna "
                          "or early stopping).")
