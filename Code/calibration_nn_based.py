@@ -412,11 +412,11 @@ class ResidualNN(nn.Module):
             nn.Linear(input_dim, 128),
             nn.SiLU(),
 
-            nn.Linear(128, 256),
-            nn.SiLU(),
+            # nn.Linear(128, 256),
+            # nn.SiLU(),
 
-            nn.Linear(256, 128),
-            nn.SiLU(),
+            # nn.Linear(256, 128),
+            # nn.SiLU(),
 
             nn.Linear(128, output_dim),
         )
