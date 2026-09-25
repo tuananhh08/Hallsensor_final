@@ -301,24 +301,10 @@ def compute_distance_stats(sensor_pos_np: np.ndarray, rp_train: np.ndarray):
 # STAGE 2 -- alpha(r) models
 # =============================================================================
 
-# =============================================================================
-# LINEAR BASELINE — temporarily disabled
-# =============================================================================
-# The linear alpha(r) model is intentionally commented out for this experiment.
-# We train and evaluate only the nonlinear NN alpha(r) model.
-#
-# class SensorwiseLinearAlpha(nn.Module):
-#     ...
-#
 class MLPCalibration(nn.Module):
     """alpha_i(r) = 1 + f_theta(r), ONE shared scalar MLP applied per sensor.
-
-    Reshape (B, 64) -> (B*64, 1) -> f_theta -> (B*64, 1) -> (B, 64) means
-    delta_alpha_i can only ever be a function of r_i -- there is no path for
-    information from r_j (j != i) to reach output i. Verified numerically in
-    run_sanity_checks().
+    
     """
-
     def __init__(self, hidden_dim: int = 32, n_hidden_layers: int = 2, output_scale_init: float = 0.05):
         super().__init__()
         layers = []
@@ -365,7 +351,7 @@ class MLPCalibration(nn.Module):
 def build_model(cfg: dict, output_scale_init: float = 0.05) -> nn.Module:
     """Build the Stage-2 nonlinear NN alpha(r) model only."""
     return MLPCalibration(
-        hidden_dim=cfg["mlp_hidden_dim"],
+        hidden_dim=cfg["hidden_dim"],
         n_hidden_layers=cfg["mlp_n_hidden_layers"],
         output_scale_init=output_scale_init,
     )
@@ -602,7 +588,7 @@ def calibrate_stage2_model(train_data, val_data, test_data,
     print("STAGE 2 [NN]: OPTUNA HYPERPARAMETER SEARCH")
     print("===================================")
     print(
-        f"Architecture (fixed): 1 -> {cfg['mlp_hidden_dim']} -> SiLU "
+        f"Architecture (fixed): 1 -> {cfg['hidden_dim']} -> SiLU "
         f"(x{cfg['mlp_n_hidden_layers']}) -> 1, shared independently across "
         f"all {N_SENSORS} sensors"
     )
@@ -718,7 +704,7 @@ def calibrate_stage2_model(train_data, val_data, test_data,
     checkpoint = {
         "kind": "nn",
         "model_state_dict": deploy_model.state_dict(),
-        "mlp_hidden_dim": cfg["mlp_hidden_dim"],
+        "hidden_dim": cfg["hidden_dim"],
         "mlp_n_hidden_layers": cfg["mlp_n_hidden_layers"],
         "output_scale_init": output_scale_init,
         "lambda_alpha": best["lambda_alpha"],
@@ -1024,7 +1010,7 @@ def main():
     sensor_rmse_plot_path = output_dir / "sensor_rmse.png"
 
     cfg = {
-        "seed": args.seed, "mlp_hidden_dim": args.mlp_hidden_dim,
+        "seed": args.seed, "hidden_dim": args.hidden_dim,
         "mlp_n_hidden_layers": args.mlp_n_hidden_layers, "batch_size": args.batch_size,
         "n_trials": args.n_trials, "max_epochs": args.max_epochs, "patience": args.patience,
         "min_delta": args.min_delta, "huber_delta_v": args.huber_delta_v,
@@ -1166,7 +1152,7 @@ def main():
             "test_samples": int(len(test_data[0])),
             "nn": {
                 "architecture": (
-                    f"1 -> {cfg['mlp_hidden_dim']} -> "
+                    f"1 -> {cfg['hidden_dim']} -> "
                     f"SiLU (x{cfg['mlp_n_hidden_layers']}) -> 1, shared"
                 ),
                 "optuna_best_params": nn_result["checkpoint"]["optuna_best_params"],
