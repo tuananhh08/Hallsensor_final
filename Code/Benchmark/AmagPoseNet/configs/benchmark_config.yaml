@@ -1,0 +1,69 @@
+# ============================================================
+# AMagPoseNet Benchmark Configuration
+# ============================================================
+# All paths are relative to the repo root (Hallsensor_final/).
+# Override any value via CLI flags in train_stage*.py.
+
+# ── Data paths ───────────────────────────────────────────────
+data:
+  raw_voltage:       "Data_8_2026/Grid_data.csv"
+  clean_voltage:     "Data_8_2026/Grid_data_computed.csv"
+  raw_label:         "Data_8_2026/Grid_points_coordinates.csv"
+  synthetic_voltage: "Data_8_2026/synthetic_grid_data2.csv"
+  synthetic_label:   "Data_8_2026/synthetic_grid_coordinates2.csv"
+
+# ── Cache / checkpoints ──────────────────────────────────────
+dirs:
+  cache_dir:  "Code/Benchmark/AmagPoseNet/data_cache"
+  ckpt_dir:   "Code/Benchmark/AmagPoseNet/ckpt"
+
+# ── Data split ───────────────────────────────────────────────
+split:
+  val_ratio: 0.2
+  seed:      42
+
+# ── Stage 1: CaliNet training ────────────────────────────────
+stage1:
+  num_epochs:    200
+  lr:            2.0e-4
+  weight_decay:  4.56e-3
+  warmup_epochs: 5
+  patience:      45
+  save_every:    5
+  batch_size:    256
+
+# ── Stage 2: PoseNet pre-training ────────────────────────────
+stage2:
+  num_epochs:    200
+  lr:            1.0e-3
+  weight_decay:  4.56e-3
+  warmup_epochs: 5
+  patience:      45
+  save_every:    5
+  batch_size:    512          # paper used 512 for synthetic dataset
+
+# ── Stage 3: End-to-end fine-tuning ─────────────────────────
+stage3:
+  num_epochs:    200
+  lr_calinet:    2.0e-4
+  lr_posenet:    1.0e-3
+  weight_decay:  4.56e-3
+  warmup_epochs: 5
+  patience:      45
+  save_every:    5
+  batch_size:    256           # paper used 8 for real-world; use 256 for our split
+
+# ── Loss weights ─────────────────────────────────────────────
+loss:
+  # Paper reports L = Lp + β*Lo but does NOT give a numerical β.
+  # Default 1.0 = equal weighting. Tune as needed.
+  beta:         1.0
+  lambda_pos:   1.0
+  # Calibration loss weight in Stage 3 combined loss
+  lambda_calib: 0.1
+
+# ── DataLoader ───────────────────────────────────────────────
+loader:
+  num_workers:     0       # 0 = main process (safe on macOS); increase for Linux/CUDA
+  prefetch_factor: 2
+  samples_per_epoch: 0     # 0 = full dataset per epoch
