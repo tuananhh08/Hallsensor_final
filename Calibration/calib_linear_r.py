@@ -7,17 +7,19 @@ from scipy.optimize import least_squares, lsq_linear
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026")  # MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Dataset")  # MAC
+OUTPUT_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Calibration/Parameters/Linear_r")  # MAC
+
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
 
 SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"
 ROBOT_POSE_PATH = BASE_DIR / "Grid_add_Random_points_coordinates.csv"
 VOLTAGE_DATA_PATH = BASE_DIR / "Grid_add_Random_data.csv"
 OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
 
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_r.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_r.csv"
-RMSE_OUTPUT_PATH = BASE_DIR / "Calibration_RMSE_r.png"
+PHYSICAL_OUTPUT_PATH = OUTPUT_DIR / "Calibration_Parameters_r.csv"
+ALPHA_OUTPUT_PATH = OUTPUT_DIR / "Calibration_Alpha_r.csv"
+RMSE_OUTPUT_PATH = OUTPUT_DIR / "Calibration_RMSE_r.png"
 
 # =============================================================================
 # CONSTANTS / SPLIT

@@ -7,17 +7,19 @@ from scipy.optimize import least_squares, lsq_linear
 # =============================================================================
 # FILE PATHS
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026")  # MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026")  # WINDOWS
+DATASET_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Dataset")  # MAC
+OUTPUT_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Calibration/Parameters/Linear_r_per_sensor")  # MAC
 
-SENSOR_POSITIONS_PATH = BASE_DIR / "Hall_sensor_positions.csv"
-ROBOT_POSE_PATH = BASE_DIR / "Grid_add_Random_points_coordinates.csv"
-VOLTAGE_DATA_PATH = BASE_DIR / "Grid_add_Random_data.csv"
-OFFSET_INIT_PATH = BASE_DIR / "Offset_Sens.csv"
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Dataset")  # WINDOWS
 
-PHYSICAL_OUTPUT_PATH = BASE_DIR / "Calibration_Physical_r_per_sensor.csv"
-ALPHA_OUTPUT_PATH = BASE_DIR / "Calibration_Alpha_r_per_sensor.csv"
-RMSE_OUTPUT_PATH = BASE_DIR / "Calibration_RMSE_r_per_sensor.png"
+SENSOR_POSITIONS_PATH = DATASET_DIR / "Hall_sensor_positions.csv"
+ROBOT_POSE_PATH = DATASET_DIR / "Grid_add_Random_points_coordinates.csv"
+VOLTAGE_DATA_PATH = DATASET_DIR / "Grid_add_Random_data.csv"
+OFFSET_INIT_PATH = DATASET_DIR / "Offset_Sens.csv"
+
+PHYSICAL_OUTPUT_PATH = OUTPUT_DIR / "Calibration_Parameters_r_per_sensor.csv"
+ALPHA_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_Alpha_r_per_sensor.csv"
+RMSE_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_RMSE_r_per_sensor.png"
 
 # =============================================================================
 # CONSTANTS / SPLIT

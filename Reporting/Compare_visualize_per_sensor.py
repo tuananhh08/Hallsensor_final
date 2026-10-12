@@ -8,8 +8,8 @@ from pathlib import Path
 # =============================================================================
 # FILE PATHS  
 # =============================================================================
-# BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
-BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
+BASE_DIR = Path(r"/Users/tuananhnguyen/Downloads/Hallsensor_final/Data_8_2026") #MAC
+# BASE_DIR = Path(r"D:\Downloads\Hallsensor_final\Data_8_2026") #WINDOWS
 
 PHYSICAL_PATH = BASE_DIR / "Calibration_Physical_r.csv"
 ALPHA_PATH = BASE_DIR / "Calibration_Alpha_r_per_sensor.csv"
