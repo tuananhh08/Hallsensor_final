@@ -587,11 +587,6 @@ def calibrate_stage2_model(train_data, val_data, test_data,
     print("STAGE 2 [NN]: OPTUNA HYPERPARAMETER SEARCH")
     print("===================================")
     print(
-        f"Architecture (fixed): 1 -> {cfg['hidden_dim']} -> SiLU "
-        f"(x{cfg['mlp_n_hidden_layers']}) -> 1, shared independently across "
-        f"all {N_SENSORS} sensors"
-    )
-    print(
         f"{cfg['n_trials']} trials over "
         "[lr, weight_decay, lambda_alpha, output_scale_init] | "
         f"train={len(rp_train)} | val={len(val_data[0])} | test={len(test_data[0])}"
@@ -998,8 +993,8 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    physical_output_path = output_dir / "physical_params.csv"
-    nn_checkpoint_path = output_dir / "stage2_alpha_r_nn.pt"
+    physical_output_path = output_dir / "Physical_parameters.csv"
+    nn_checkpoint_path = output_dir / "Alpha_r_nn.pt"
     scaler_path = output_dir / "stage2_distance_scaler.json"
     history_path = output_dir / "stage2_history.csv"
     sensor_metrics_path = output_dir / "stage2_sensor_metrics.csv"
@@ -1018,7 +1013,7 @@ def main():
     print("=" * 70)
     print("TWO-STAGE HALL SENSOR CALIBRATION  |  device =", device)
     print("=" * 70)
-    print("Stage 1: physical calibration (least_squares) -- unchanged")
+    print("Stage 1: physical calibration (least_squares)")
     print("Stage 2: r(64) -> alpha(64), nonlinear shared scalar-MLP NN only")
 
     sensor_positions = load_sensor_positions(args.sensor_positions)
