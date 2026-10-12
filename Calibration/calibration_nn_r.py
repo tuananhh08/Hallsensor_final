@@ -111,7 +111,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 # =============================================================================
-# DIPOLE MODEL -- Stage 1 
+# DIPOLE MODEL 
 # =============================================================================
 
 def dipole_field(r_vec, m_vec):
@@ -177,7 +177,7 @@ def load_offset_initial_values(file_path, n_sensors):
 
 
 # =============================================================================
-# STAGE 1 -- least_squares physical fit
+# STAGE 1 -- least_squares physical parameters fit
 # =============================================================================
 
 def sensor_residuals(params, robot_positions, m_world, voltage_sensor,
@@ -297,14 +297,14 @@ def compute_distance_stats(sensor_pos_np: np.ndarray, rp_train: np.ndarray):
 
 
 # =============================================================================
-# STAGE 2 -- alpha(r) models
+# STAGE 2 -- Neural Network 
 # =============================================================================
 
 class MLPCalibration(nn.Module):
     """alpha_i(r) = 1 + f_theta(r), ONE shared scalar MLP applied per sensor.
     
     """
-    def __init__(self, hidden_dim: int = 32, n_hidden_layers: int = 2, output_scale_init: float = 0.05):
+    def __init__(self, hidden_dim: int = 64, n_hidden_layers: int = 2, output_scale_init: float = 0.05):
         super().__init__()
         layers = []
         in_dim = 1
