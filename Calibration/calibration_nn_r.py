@@ -59,10 +59,9 @@ def set_seed(seed: int) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="2-stage Hall-sensor calibration: Stage 1 physical params "
-                     "(least_squares, unchanged) + Stage 2 distance-only "
-                     "nonlinear alpha(r) NN, Optuna-tuned training "
-                     "hyperparameters, fixed architecture.",
+        description="2-stage calibration: Stage 1 physical params "
+                     "(least_squares, unchanged) + Stage 2 "
+                     "nonlinear alpha(r) NN",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--sensor_positions", required=True)
