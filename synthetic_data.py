@@ -18,6 +18,12 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.transform import Rotation as R
 
+import sys
+from pathlib import Path as _Path
+_LOSSES_DIR = str(_Path(__file__).resolve().parent / "Losses")
+if _LOSSES_DIR not in sys.path:
+    sys.path.insert(0, _LOSSES_DIR)
+
 from loss_mvec import load_alpha_calib_csv, load_physical_calib_csv
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -277,15 +283,15 @@ def parse_args() -> argparse.Namespace:
     script_dir   = Path(__file__).resolve().parent
     calib_root   = script_dir / "Calibration" / "Parameters" / "Linear_r_per_sensor"
 
-    parser = argparse.ArgumentParser(description="Generate synthetic grid data for train_mvec.py")
+    parser = argparse.ArgumentParser(description="Generate synthetic grid data")
     parser.add_argument("--data_dir",      type=Path,
                         default=script_dir / "Dataset")
     parser.add_argument("--calib_physical", type=str,
                         default=str(calib_root / "Calibration_Parameters_r_per_sensor.csv"))
     parser.add_argument("--calib_alpha",    type=str,
                         default=str(calib_root / "Calibration_Alpha_r_per_sensor.csv"))
-    parser.add_argument("--out_coord",  type=str, default="synthetic_grid_coordinates2.csv")
-    parser.add_argument("--out_volt",   type=str, default="synthetic_grid_data2.csv")
+    parser.add_argument("--out_coord",  type=str, default="synthetic_grid_coordinates.csv")
+    parser.add_argument("--out_volt",   type=str, default="synthetic_grid_data.csv")
     parser.add_argument("--chunk_size", type=int, default=500,
                         help="Spatial points per chunk")
     parser.add_argument(
