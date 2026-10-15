@@ -36,13 +36,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=root / "Dataset" / "Helix_points_coordinates_2.csv",
+        default=root / "Dataset" / "Grid_points_coordinates.csv",
         help="Pose CSV containing x,y,z,mx,my,mz.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=root / "Dataset" / "Helix_points_data_computed_2.csv",
+        default=root / "Dataset" / "Grid_data_computed.csv",
         help="Output clean-voltage CSV (one sensor column per calibration row).",
     )
     parser.add_argument(

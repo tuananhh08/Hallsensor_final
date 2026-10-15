@@ -19,7 +19,6 @@ class _ResidualBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.act(x + self.block(x))
 
-
 class CalibNet(nn.Module):
 
     def __init__(self, channels: int = 16, num_blocks: int = 2):
