@@ -10,11 +10,17 @@ import argparse
 import json
 import os
 import shutil
+import sys
 import time
 from pathlib import Path
 
 import optuna
 import torch
+
+REPO_ROOT = Path(__file__).resolve().parent
+for module_dir in (REPO_ROOT / "Network Architecture", REPO_ROOT / "Losses"):
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
 
 from loss_mvec import CalibLocLoss, HuberPoseLossMVec
 from model import Model
@@ -23,19 +29,19 @@ from training_loop import default_num_workers, make_loaders
 
 
 def get_args() -> argparse.Namespace:
-    root = Path(__file__).resolve().parent.parent / "Dataset" / "Dataset"
+    root = REPO_ROOT / "Dataset"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", choices=("calibnet", "locnet", "finetune"), default="finetune")
     parser.add_argument("--raw-voltage", default=str(root / "Grid_data.csv"))
     parser.add_argument("--clean-voltage", default=str(root / "Grid_data_computed.csv"))
     parser.add_argument("--raw-label", default=str(root / "Grid_points_coordinates.csv"))
-    parser.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data2.csv"))
-    parser.add_argument("--synthetic-label",   default=str(root / "synthetic_grid_coordinates2.csv"))
+    parser.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data.csv"))
+    parser.add_argument("--synthetic-label",   default=str(root / "synthetic_grid_coordinates.csv"))
     parser.add_argument("--calib-physical-csv", default=str(
-                            Path(__file__).resolve().parent / "Calibration" / "Parameters" /
+                            REPO_ROOT / "Calibration" / "Parameters" /
                             "Linear_r_per_sensor" / "Calibration_Parameters_r_per_sensor.csv"))
     parser.add_argument("--calib-alpha-csv", default=str(
-                            Path(__file__).resolve().parent / "Calibration" / "Parameters" /
+                            REPO_ROOT / "Calibration" / "Parameters" /
                             "Linear_r_per_sensor" / "Calibration_Alpha_r_per_sensor.csv"))
     parser.add_argument("--calibnet-checkpoint", default=None,
                         help="Required for --phase finetune; checkpoint from phase calibnet.")
@@ -79,13 +85,13 @@ def make_pose_loss(args, scalers, device, trial) -> HuberPoseLossMVec:
     if args.phase == "calibnet":
         return HuberPoseLossMVec(lambda_physics=0.0).to(device)
     physics_weight = 0.0 if args.no_physics or args.phase == "calibnet" else trial.suggest_float(
-        "lambda_physics", 1e-5, 1e-2, log=True)
+        "lambda_physics", 1e-6, 1e-2, log=True)
     return HuberPoseLossMVec(
-        lambda_ori=trial.suggest_float("lambda_ori", 0.03, 3.0, log=True),
-        delta_xyz=trial.suggest_float("delta_xyz", 0.01, 0.25),
+        lambda_ori=trial.suggest_float("lambda_ori", 0.01, 3.0, log=True),
+        delta_xyz=trial.suggest_float("delta_xyz", 0.01, 0.5),
         lambda_pos=trial.suggest_float("lambda_pos", 0.1, 3.0, log=True),
         lambda_physics=physics_weight,
-        physics_delta=trial.suggest_float("physics_delta", 1e-4, 1e-2, log=True),
+        physics_delta=trial.suggest_float("physics_delta", 1e-6, 1e-2, log=True),
         calib_physical_csv=args.calib_physical_csv if physics_weight else None,
         calib_alpha_csv=args.calib_alpha_csv if physics_weight else None,
         volt_scaler=scalers["volt"] if physics_weight else None,
@@ -154,7 +160,7 @@ def main() -> None:
         torch.manual_seed(trial_seed)
         if device.type == "cuda":
             torch.cuda.manual_seed_all(trial_seed)
-        batch_size = trial.suggest_categorical("batch_size", [256, 512])
+        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256, 512])
         train_loader, val_loader = make_loaders(
             train_ds, val_ds, batch_size, args.num_workers, device, args.prefetch_factor,
             args.samples_per_epoch,
@@ -171,13 +177,13 @@ def main() -> None:
             lambda_calib, calib_delta = 1.0, 0.05
         pipeline_loss = CalibLocLoss(pose_loss, lambda_calib=lambda_calib, calib_delta=calib_delta).to(device)
         if args.phase == "calibnet":
-            parameters = [{"params": model.calibnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 3e-3, log=True)}]
+            parameters = [{"params": model.calibnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-6, 3e-3, log=True)}]
         elif args.phase == "locnet":
-            parameters = [{"params": model.locnet.parameters(), "lr": trial.suggest_float("lr_locnet", 1e-5, 3e-3, log=True)}]
+            parameters = [{"params": model.locnet.parameters(), "lr": trial.suggest_float("lr_locnet", 1e-6, 3e-3, log=True)}]
         else:
             parameters = [
-                {"params": model.calibnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-5, 1e-3, log=True)},
-                {"params": model.locnet.parameters(), "lr": trial.suggest_float("lr_locnet", 1e-5, 3e-3, log=True)},
+                {"params": model.calibnet.parameters(), "lr": trial.suggest_float("lr_calibnet", 1e-6, 1e-3, log=True)},
+                {"params": model.locnet.parameters(), "lr": trial.suggest_float("lr_locnet", 1e-6, 3e-3, log=True)},
             ]
         optimizer = torch.optim.AdamW(parameters, weight_decay=trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True))
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, args.max_epochs), eta_min=1e-6)

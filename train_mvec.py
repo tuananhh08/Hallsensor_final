@@ -6,6 +6,7 @@ import os
 import pickle
 import platform
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -15,6 +16,13 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 
+# Allow this script to run directly from the repository root (including Colab),
+# while keeping the existing project layout with spaces in ``Network Architecture``.
+REPO_ROOT = Path(__file__).resolve().parent
+for module_dir in (REPO_ROOT / "Network Architecture", REPO_ROOT / "Losses"):
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
+
 from data_mvec import PosLabelScaler, StreamingMinMaxScaler
 from loss_mvec import CalibLocLoss, HuberPoseLossMVec
 from model import Model
@@ -22,7 +30,7 @@ from training_loop import default_num_workers, make_loaders
 
 
 def get_config():
-    root = Path(__file__).resolve().parent.parent / "Dataset" / "Dataset"
+    root = REPO_ROOT / "Dataset"
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # --- Required ---
@@ -33,13 +41,13 @@ def get_config():
     p.add_argument("--raw-voltage",       default=str(root / "Grid_data.csv"))
     p.add_argument("--clean-voltage",     default=str(root / "Grid_data_computed.csv"))
     p.add_argument("--raw-label",         default=str(root / "Grid_points_coordinates.csv"))
-    p.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data2.csv"))
-    p.add_argument("--synthetic-label",   default=str(root / "synthetic_grid_coordinates2.csv"))
+    p.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data.csv"))
+    p.add_argument("--synthetic-label",   default=str(root / "synthetic_grid_coordinates.csv"))
     p.add_argument("--calib-physical-csv",default=str(
-                       Path(__file__).resolve().parent / "Calibration" / "Parameters" /
+                       REPO_ROOT / "Calibration" / "Parameters" /
                        "Linear_r_per_sensor" / "Calibration_Parameters_r_per_sensor.csv"))
     p.add_argument("--calib-alpha-csv",   default=str(
-                       Path(__file__).resolve().parent / "Calibration" / "Parameters" /
+                       REPO_ROOT / "Calibration" / "Parameters" /
                        "Linear_r_per_sensor" / "Calibration_Alpha_r_per_sensor.csv"))
 
     # --- Directories and cache ---
