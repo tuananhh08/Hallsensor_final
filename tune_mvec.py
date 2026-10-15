@@ -31,8 +31,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--raw-label", default=str(root / "Grid_points_coordinates.csv"))
     parser.add_argument("--synthetic-voltage", default=str(root / "synthetic_grid_data2.csv"))
     parser.add_argument("--synthetic-label",   default=str(root / "synthetic_grid_coordinates2.csv"))
-    parser.add_argument("--calib-physical-csv", default=str(root / "Calibration_Physical_new.csv"))
-    parser.add_argument("--calib-alpha-csv", default=str(root / "Calibration_Alpha_new.csv"))
+    parser.add_argument("--calib-physical-csv", default=str(
+                            Path(__file__).resolve().parent / "Calibration" / "Parameters" /
+                            "Linear_r_per_sensor" / "Calibration_Parameters_r_per_sensor.csv"))
+    parser.add_argument("--calib-alpha-csv", default=str(
+                            Path(__file__).resolve().parent / "Calibration" / "Parameters" /
+                            "Linear_r_per_sensor" / "Calibration_Alpha_r_per_sensor.csv"))
     parser.add_argument("--calibnet-checkpoint", default=None,
                         help="Required for --phase finetune; checkpoint from phase calibnet.")
     parser.add_argument("--locnet-checkpoint", default=None,

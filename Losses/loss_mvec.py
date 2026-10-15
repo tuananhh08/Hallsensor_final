@@ -37,23 +37,34 @@ def load_physical_calib_csv(path: str) -> dict:
     }
 
 def load_alpha_calib_csv(path: str) -> dict:
-    " Load the alpha(h) = c0 + c1*h "
+    """Load per-sensor alpha(r) = c0_s + c1_s * r calibration.
+
+    Expected CSV columns: sensor_index, c0, c1  (optionally rmse).
+    Returns {'c0': np.ndarray (64,), 'c1': np.ndarray (64,)}.
+    """
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(f"Alpha calibration file not found: {path}")
-    
+
     df = pd.read_csv(path)
-    required = {"coefficient", "value"}
+    required = {"sensor_index", "c0", "c1"}
     missing = required.difference(df.columns)
     if missing:
         raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
-    coeffs = dict(zip(df["coefficient"].astype(str).str.strip(), df["value"].astype(float)))
-    missing_coeffs = {"c0", "c1"}.difference(coeffs.keys())
-    if missing_coeffs: 
-        raise ValueError(f"{path} is missing required coefficients: {sorted(missing_coeffs)}")
-    c0, c1 = float(coeffs["c0"]), float(coeffs["c1"])
-    if not np.isfinite([c0, c1]).all():
-        raise ValueError(f"{path} contains non-finite values for c0 or c1.")
+
+    df = df.sort_values("sensor_index").reset_index(drop=True)
+    expected = np.arange(NUM_SENSORS)
+    indices = df["sensor_index"].to_numpy()
+    if len(df) != NUM_SENSORS or not np.array_equal(indices, expected):
+        raise ValueError(
+            f"{path} must contain exactly {NUM_SENSORS} rows with "
+            f"sensor_index 0..{NUM_SENSORS - 1}. Found: {indices}"
+        )
+
+    c0 = df["c0"].to_numpy(dtype=np.float32)
+    c1 = df["c1"].to_numpy(dtype=np.float32)
+    if not np.isfinite(c0).all() or not np.isfinite(c1).all():
+        raise ValueError(f"{path} contains non-finite values in c0 or c1.")
     return {"c0": c0, "c1": c1}
 
 class HuberPoseLossMVec(nn.Module):
@@ -93,20 +104,21 @@ class HuberPoseLossMVec(nn.Module):
                                label_scaler if lambda_physics != 0 else None)
 
     def _register_calibration(self, physical_path, alpha_path) -> None:
-        if physical_path is None: 
+        if physical_path is None:
             self.calib_offset = self.calib_gain = self.sensor_pos = None
             self.alpha_c0 = self.alpha_c1 = None
             return
         calib = load_physical_calib_csv(physical_path)
         alpha = load_alpha_calib_csv(alpha_path)
-        self.register_buffer("calib_offset", torch.tensor(calib["offset"], dtype=torch.float32))  # (64,)
-        self.register_buffer("calib_gain",   torch.tensor(calib["gain"],   dtype=torch.float32))  # (64,)
+        self.register_buffer("calib_offset", torch.tensor(calib["offset"],     dtype=torch.float32))  # (64,)
+        self.register_buffer("calib_gain",   torch.tensor(calib["gain"],       dtype=torch.float32))  # (64,)
         self.register_buffer("sensor_pos",   torch.tensor(calib["sensor_pos"], dtype=torch.float32))  # (64, 3)
-        self.register_buffer("alpha_c0",     torch.tensor(alpha["c0"], dtype=torch.float32))  # scalar
-        self.register_buffer("alpha_c1",     torch.tensor(alpha["c1"], dtype=torch.float32))  # scalar
-        print(f"[HuberPoseLoss] Physical calibration: {physical_path}")
-        print(f"[HuberPoseLoss] Alpha calibration: {alpha_path}")
-        print(f" alpha(h) = {alpha['c0']:.8f} + {alpha['c1']:.8f} * h")
+        # Per-sensor alpha(r) = c0_s + c1_s * r_s  — shape (64,)
+        self.register_buffer("alpha_c0",     torch.tensor(alpha["c0"],         dtype=torch.float32))  # (64,)
+        self.register_buffer("alpha_c1",     torch.tensor(alpha["c1"],         dtype=torch.float32))  # (64,)
+        print(f"[HuberPoseLoss] Physical calibration : {physical_path}")
+        print(f"[HuberPoseLoss] Alpha calibration    : {alpha_path}")
+        print(f"  alpha(r) per sensor: c0 mean={alpha['c0'].mean():.6f}  c1 mean={alpha['c1'].mean():.6f}")
         
     def _register_scalers(self, volt_scaler, label_scaler) -> None: 
         if volt_scaler is None: 
@@ -165,7 +177,7 @@ class HuberPoseLossMVec(nn.Module):
         return B_vec[..., 2]   # (B, 64)
 
     def physics_term(self, pred: torch.Tensor, x_batch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        if not self.physics_ready: 
+        if not self.physics_ready:
             raise RuntimeError("Physics terms require both calibration files and fitted scalers")
         if x_batch is None:
             raise ValueError("x_batch must be provided for physics term computation")
@@ -173,15 +185,20 @@ class HuberPoseLossMVec(nn.Module):
             raise ValueError(f"pred must be of shape (B, 6). Got {tuple(pred.shape)}")
         if x_batch.numel() % NUM_SENSORS:
             raise ValueError(f"x_batch must contain a multiple of {NUM_SENSORS} values")
-        
+
         pred = pred.float()
-        voltage = self._inverse_voltage(x_batch.float())
-        Bz_measured = (voltage - self.calib_offset.unsqueeze(0))/ self.calib_gain.unsqueeze(0)
-        pred_pos = self._inverse_xyz(pred)
-        Bz_raw = self._compute_Bz_raw(pred_pos, self.m0 * pred[:, 3:])
-        h = pred_pos[:, 2:3] - self.sensor_pos[:, 2].unsqueeze(0)
-        Bz_predicted = (self.alpha_c0 + self.alpha_c1*h) * Bz_raw
-        return Bz_predicted, Bz_measured 
+        voltage    = self._inverse_voltage(x_batch.float())                              # (B, 64)
+        Bz_measured = (voltage - self.calib_offset.unsqueeze(0)) / self.calib_gain.unsqueeze(0)  # (B, 64)
+        pred_pos   = self._inverse_xyz(pred)                                             # (B, 3)
+        Bz_raw     = self._compute_Bz_raw(pred_pos, self.m0 * pred[:, 3:])              # (B, 64)
+
+        # Per-sensor alpha(r): r_s = ||sensor_s - pred_pos||,  alpha_s = c0_s + c1_s * r_s
+        r_vec = self.sensor_pos.unsqueeze(0) - pred_pos.unsqueeze(1)                    # (B, 64, 3)
+        r_dist = torch.linalg.norm(r_vec, dim=-1).clamp(min=1e-6)                       # (B, 64)
+        alpha_s = self.alpha_c0.unsqueeze(0) + self.alpha_c1.unsqueeze(0) * r_dist      # (B, 64)
+
+        Bz_predicted = alpha_s * Bz_raw                                                  # (B, 64)
+        return Bz_predicted, Bz_measured
     
     def physics_per_sample(self, pred: torch.Tensor, x_batch: torch.Tensor) -> dict[str, torch.Tensor]:
         Bz_predicted, Bz_measured = self.physics_term(pred, x_batch)

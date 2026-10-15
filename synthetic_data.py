@@ -159,25 +159,37 @@ def compute_voltage(
     sensor_pos: np.ndarray,
     offset: np.ndarray,
     gain: np.ndarray,
-    c0: float,
-    c1: float,
+    c0: np.ndarray,
+    c1: np.ndarray,
 ) -> np.ndarray:
-    """V = offset + gain * Bz_raw * (c0 + c1 * h); h = z_pose - z_sensor."""
-    h = roi_xyz[:, 2:3] - sensor_pos[:, 2]
-    alpha = c0 + c1 * h
+    """V_s = offset_s + gain_s * Bz_raw_s * (c0_s + c1_s * r_s)
+
+    Per-sensor alpha(r): r_s = ||roi_xyz - sensor_pos_s||.
+    roi_xyz   : (N, 3)
+    bz_raw    : (N, 64)
+    sensor_pos: (64, 3)
+    c0, c1    : (64,)  -- per-sensor coefficients
+    """
+    # r_s for every roi point and every sensor: (N, 64)
+    r_vec  = roi_xyz[:, None, :] - sensor_pos[None, :, :]   # (N, 64, 3)
+    r_dist = np.linalg.norm(r_vec, axis=2)                  # (N, 64)
+    r_dist = np.clip(r_dist, 1e-6, None)
+
+    alpha = c0[None, :] + c1[None, :] * r_dist              # (N, 64)
     return offset[None, :] + gain[None, :] * bz_raw * alpha
 
 
 # ─── IO ───────────────────────────────────────────────────────────────────────
 def load_calibration(physical_path: Path, alpha_path: Path) -> dict:
+    """Load physical + per-sensor alpha(r) calibration parameters."""
     physical = load_physical_calib_csv(str(physical_path))
-    alpha = load_alpha_calib_csv(str(alpha_path))
+    alpha    = load_alpha_calib_csv(str(alpha_path))
     return {
-        "sensor_pos": physical["sensor_pos"],
-        "offset": physical["offset"],
-        "gain": physical["gain"],
-        "c0": alpha["c0"],
-        "c1": alpha["c1"],
+        "sensor_pos": physical["sensor_pos"],   # (64, 3)
+        "offset":     physical["offset"],        # (64,)
+        "gain":       physical["gain"],           # (64,)
+        "c0":         alpha["c0"],               # (64,)  per-sensor
+        "c1":         alpha["c1"],               # (64,)  per-sensor
     }
 
 
@@ -262,16 +274,20 @@ def validate_outputs(
 
 
 def parse_args() -> argparse.Namespace:
-    script_dir = Path(__file__).resolve().parent
-    default_data_dir = script_dir.parent / "Data_8_2026"
+    script_dir   = Path(__file__).resolve().parent
+    calib_root   = script_dir / "Calibration" / "Parameters" / "Linear_r_per_sensor"
 
     parser = argparse.ArgumentParser(description="Generate synthetic grid data for train_mvec.py")
-    parser.add_argument("--data_dir", type=Path, default=default_data_dir)
-    parser.add_argument("--calib_physical", type=str, default="Calibration_Physical_new.csv")
-    parser.add_argument("--calib_alpha", type=str, default="Calibration_Alpha_new.csv")
-    parser.add_argument("--out_coord", type=str, default="synthetic_grid_coordinates2.csv")
-    parser.add_argument("--out_volt", type=str, default="synthetic_grid_data2.csv")
-    parser.add_argument("--chunk_size", type=int, default=500, help="Spatial points per chunk")
+    parser.add_argument("--data_dir",      type=Path,
+                        default=script_dir / "Dataset")
+    parser.add_argument("--calib_physical", type=str,
+                        default=str(calib_root / "Calibration_Parameters_r_per_sensor.csv"))
+    parser.add_argument("--calib_alpha",    type=str,
+                        default=str(calib_root / "Calibration_Alpha_r_per_sensor.csv"))
+    parser.add_argument("--out_coord",  type=str, default="synthetic_grid_coordinates2.csv")
+    parser.add_argument("--out_volt",   type=str, default="synthetic_grid_data2.csv")
+    parser.add_argument("--chunk_size", type=int, default=500,
+                        help="Spatial points per chunk")
     parser.add_argument(
         "--max_spatial",
         type=int,
@@ -284,21 +300,28 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    cfg = ROIConfig()
+    cfg  = ROIConfig()
 
-    data_dir = args.data_dir.resolve()
-    calib_physical = data_dir / args.calib_physical
-    calib_alpha = data_dir / args.calib_alpha
+    data_dir      = args.data_dir.resolve()
+    # calib_physical / calib_alpha may be absolute paths (from defaults) or
+    # relative filenames resolved against data_dir (for backward compat).
+    calib_physical = Path(args.calib_physical)
+    if not calib_physical.is_absolute():
+        calib_physical = data_dir / calib_physical
+    calib_alpha = Path(args.calib_alpha)
+    if not calib_alpha.is_absolute():
+        calib_alpha = data_dir / calib_alpha
+
     coord_path = data_dir / args.out_coord
-    volt_path = data_dir / args.out_volt
+    volt_path  = data_dir / args.out_volt
 
     print("Loading calibration...")
-    calib = load_calibration(calib_physical, calib_alpha)
+    calib      = load_calibration(calib_physical, calib_alpha)
     sensor_pos = calib["sensor_pos"]
-    offset = calib["offset"]
-    gain = calib["gain"]
-    c0, c1 = calib["c0"], calib["c1"]
-    print(f"  alpha(h) = {c0:.8f} + {c1:.8f} * h")
+    offset     = calib["offset"]
+    gain       = calib["gain"]
+    c0, c1     = calib["c0"], calib["c1"]   # (64,) per-sensor
+    print(f"  alpha(r) per sensor: c0 mean={c0.mean():.6f}  c1 mean={c1.mean():.6f}")
 
     print("Precomputing magnet vectors...")
     m_precomputed = precompute_magnet_vectors(cfg)

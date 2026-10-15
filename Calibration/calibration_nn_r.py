@@ -537,7 +537,7 @@ def optuna_objective(trial, train_data, val_data, sensor_pos_np, frozen_phys, cf
     """Optuna objective for NN training hyperparameters only."""
     lr = trial.suggest_float("lr", 1e-4, 1e-1, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-    lambda_alpha = trial.suggest_float("lambda_alpha", 1e-6, 1e-1, log=True)
+    lambda_alpha = trial.suggest_float("lambda_alpha", 1e-8, 1e-6, log=True)
     output_scale_init = trial.suggest_float("output_scale_init", 1e-3, 0.3, log=True)
 
     set_seed(cfg["seed"] + trial.number)
