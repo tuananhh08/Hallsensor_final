@@ -6,6 +6,7 @@ import os
 import pickle
 import platform
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -14,6 +15,13 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+
+# Allow this script to run directly from the repository root (including Colab),
+# while keeping the existing project layout with spaces in ``Network Architecture``.
+REPO_ROOT = Path(__file__).resolve().parent
+for module_dir in (REPO_ROOT / "Network Architecture", REPO_ROOT / "Losses"):
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
 
 from data_mvec import PosLabelScaler, StreamingMinMaxScaler
 from loss_mvec import CalibLocLoss, HuberPoseLossMVec
