@@ -158,4 +158,3 @@ class ResNetModel(nn.Module):
         m_norm = F.normalize(m_raw, dim=1, eps=1e-6)
 
         return torch.cat([xyz, m_norm], dim=1)
-

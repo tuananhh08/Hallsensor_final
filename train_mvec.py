@@ -666,6 +666,11 @@ def main():
     # ------------------------------------------------------------------ #
     # 10. Post-training: plot and optional benchmark                       #
     # ------------------------------------------------------------------ #
+    try:
+        history = json.loads(log_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        history = []
+    
     plot_losses(history, run_dir / f"loss_plot_{cfg.phase}.png")
     plot_losses(history, run_dir / "loss_plot.png")
 
