@@ -85,13 +85,13 @@ def make_pose_loss(args, scalers, device, trial) -> HuberPoseLossMVec:
     if args.phase == "calibnet":
         return HuberPoseLossMVec(lambda_physics=0.0).to(device)
     physics_weight = 0.0 if args.no_physics or args.phase == "calibnet" else trial.suggest_float(
-        "lambda_physics", 1e-6, 1e-2, log=True)
+        "lambda_physics", 1e-7, 1e-2, log=True)
     return HuberPoseLossMVec(
         lambda_ori=trial.suggest_float("lambda_ori", 0.01, 3.0, log=True),
         delta_xyz=trial.suggest_float("delta_xyz", 0.01, 0.5),
-        lambda_pos=trial.suggest_float("lambda_pos", 0.1, 3.0, log=True),
+        lambda_pos=trial.suggest_float("lambda_pos", 0.01, 3.0, log=True),
         lambda_physics=physics_weight,
-        physics_delta=trial.suggest_float("physics_delta", 1e-6, 1e-2, log=True),
+        physics_delta=trial.suggest_float("physics_delta", 1e-7, 1e-2, log=True),
         calib_physical_csv=args.calib_physical_csv if physics_weight else None,
         calib_alpha_csv=args.calib_alpha_csv if physics_weight else None,
         volt_scaler=scalers["volt"] if physics_weight else None,
@@ -160,7 +160,7 @@ def main() -> None:
         torch.manual_seed(trial_seed)
         if device.type == "cuda":
             torch.cuda.manual_seed_all(trial_seed)
-        batch_size = trial.suggest_categorical("batch_size", [64, 128, 256, 512])
+        batch_size = trial.suggest_categorical("batch_size", [64])
         train_loader, val_loader = make_loaders(
             train_ds, val_ds, batch_size, args.num_workers, device, args.prefetch_factor,
             args.samples_per_epoch,
@@ -171,7 +171,7 @@ def main() -> None:
             load_component(model.locnet, args.locnet_checkpoint, "locnet", device)
         pose_loss = make_pose_loss(args, scalers, device, trial)
         if args.phase == "finetune":
-            lambda_calib = trial.suggest_float("lambda_calib", 1e-3, 1.0, log=True)
+            lambda_calib = trial.suggest_float("lambda_calib", 1e-4, 1.0, log=True)
             calib_delta = trial.suggest_float("calib_delta", 0.005, 0.2)
         else:
             lambda_calib, calib_delta = 1.0, 0.05
