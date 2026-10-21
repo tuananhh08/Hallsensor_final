@@ -17,15 +17,15 @@ ROBOT_POSE_PATH = DATASET_DIR / "Grid_add_Random_points_coordinates.csv"
 VOLTAGE_DATA_PATH = DATASET_DIR / "Grid_add_Random_data.csv"
 OFFSET_INIT_PATH = DATASET_DIR / "Offset_Sens.csv"
 
-PHYSICAL_OUTPUT_PATH = OUTPUT_DIR / "Calibration_Parameters_r_per_sensor.csv"
-ALPHA_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_Alpha_r_per_sensor.csv"
-RMSE_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_RMSE_r_per_sensor.png"
+PHYSICAL_OUTPUT_PATH = OUTPUT_DIR / "Calibration_Parameters_r_per_sensor2.csv"
+ALPHA_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_Alpha_r_per_sensor2.csv"
+RMSE_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_RMSE_r_per_sensor2.png"
 
 # =============================================================================
 # CONSTANTS / SPLIT
 # =============================================================================
 MU0_OVER_4PI = 1e-7
-N_TOTAL_CALIB_SAMPLES = 3200
+N_TOTAL_CALIB_SAMPLES = 900
 N_STAGE1_SAMPLES = 400
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES
 
