@@ -25,7 +25,7 @@ RMSE_OUTPUT_PATH = OUTPUT_DIR/ "Calibration_RMSE_r_per_sensor.png"
 # CONSTANTS / SPLIT
 # =============================================================================
 MU0_OVER_4PI = 1e-7
-N_TOTAL_CALIB_SAMPLES = 3200
+N_TOTAL_CALIB_SAMPLES = 1000
 N_STAGE1_SAMPLES = 400
 N_STAGE2_SAMPLES = N_TOTAL_CALIB_SAMPLES - N_STAGE1_SAMPLES
 

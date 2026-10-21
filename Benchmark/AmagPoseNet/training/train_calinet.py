@@ -83,6 +83,9 @@ def train_calinet(
     lr: float            = 2e-4,
     weight_decay: float  = 4.56e-3,
     warmup_epochs: int   = 5,
+    eta_min: float       = 1e-6,
+    calib_reduction: str = "mean",
+    grad_clip_norm: float = 1.0,
     patience: int        = 45,
     save_every: int      = 5,
     device: torch.device | None = None,
@@ -117,14 +120,14 @@ def train_calinet(
         total_iters=max(1, warmup_epochs),
     )
     cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=max(1, num_epochs - warmup_epochs), eta_min=1e-6,
+        optimizer, T_max=max(1, num_epochs - warmup_epochs), eta_min=eta_min,
     )
     scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer, [warmup, cosine], milestones=[warmup_epochs],
     )
 
     # ── Loss ──────────────────────────────────────────────────────────────
-    criterion = CaliNetLoss()
+    criterion = CaliNetLoss(reduction=calib_reduction)
 
     # ── Optional torch.compile ─────────────────────────────────────────────
     model = base_model
@@ -177,7 +180,8 @@ def train_calinet(
                 if training:
                     amp_scaler.scale(loss).backward()
                     amp_scaler.unscale_(optimizer)
-                    nn.utils.clip_grad_norm_(base_model.parameters(), 1.0)
+                    if grad_clip_norm > 0:
+                        nn.utils.clip_grad_norm_(base_model.parameters(), grad_clip_norm)
                     amp_scaler.step(optimizer)
                     amp_scaler.update()
                 n = len(raw)

@@ -2,20 +2,20 @@
 # AMagPoseNet Benchmark Configuration
 # ============================================================
 # All paths are relative to the repo root (Hallsensor_final/).
-# Override any value via CLI flags in train_stage*.py.
+# Override any value via CLI flags in ``python -m Benchmark.AmagPoseNet.run``.
 
 # ── Data paths ───────────────────────────────────────────────
 data:
-  raw_voltage:       "Data_8_2026/Grid_data.csv"
-  clean_voltage:     "Data_8_2026/Grid_data_computed.csv"
-  raw_label:         "Data_8_2026/Grid_points_coordinates.csv"
-  synthetic_voltage: "Data_8_2026/synthetic_grid_data2.csv"
-  synthetic_label:   "Data_8_2026/synthetic_grid_coordinates2.csv"
+  raw_voltage:       "Dataset/Grid_add_Random_data.csv"
+  clean_voltage:     "Dataset/Grid_add_Random_data_computed.csv"
+  raw_label:         "Dataset/Grid_add_Random_points_coordinates.csv"
+  synthetic_voltage: "Dataset/synthetic_grid_data.csv"
+  synthetic_label:   "Dataset/synthetic_grid_coordinates.csv"
 
 # ── Cache / checkpoints ──────────────────────────────────────
 dirs:
-  cache_dir:  "Code/Benchmark/AmagPoseNet/data_cache"
-  ckpt_dir:   "Code/Benchmark/AmagPoseNet/ckpt"
+  cache_dir:  "Benchmark/AmagPoseNet/data_cache"
+  ckpt_dir:   "Benchmark/AmagPoseNet/ckpt"
 
 # ── Data split ───────────────────────────────────────────────
 split:
@@ -55,8 +55,7 @@ stage3:
 
 # ── Loss weights ─────────────────────────────────────────────
 loss:
-  # Paper reports L = Lp + β*Lo but does NOT give a numerical β.
-  # Default 1.0 = equal weighting. Tune as needed.
+  # Default 1.0 = equal weighting.
   beta:         1.0
   lambda_pos:   1.0
   # Calibration loss weight in Stage 3 combined loss
@@ -64,6 +63,6 @@ loss:
 
 # ── DataLoader ───────────────────────────────────────────────
 loader:
-  num_workers:     0       # 0 = main process (safe on macOS); increase for Linux/CUDA
+  num_workers:     0       # 0 = main process
   prefetch_factor: 2
   samples_per_epoch: 0     # 0 = full dataset per epoch
