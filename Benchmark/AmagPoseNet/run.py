@@ -43,9 +43,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stage", required=True, choices=("calinet", "posenet", "finetune"))
 
     dataset = parser.add_argument_group("datasets")
-    dataset.add_argument("--raw-voltage", type=_path, default=data / "Grid_data.csv")
-    dataset.add_argument("--clean-voltage", type=_path, default=data / "Grid_data_computed.csv")
-    dataset.add_argument("--raw-label", type=_path, default=data / "Grid_points_coordinates.csv")
+    dataset.add_argument("--raw-voltage", type=_path, default=data / "Grid_add_Random_data.csv")
+    dataset.add_argument("--clean-voltage", type=_path, default=data / "Grid_add_Random_data_computed.csv")
+    dataset.add_argument("--raw-label", type=_path, default=data / "Grid_add_Random_points_coordinates.csv")
     dataset.add_argument("--synthetic-voltage", type=_path, default=data / "synthetic_grid_data.csv")
     dataset.add_argument("--synthetic-label", type=_path, default=data / "synthetic_grid_coordinates.csv")
 

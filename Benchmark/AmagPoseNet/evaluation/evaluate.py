@@ -19,6 +19,7 @@ import os
 import pickle
 import platform
 import sys
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -174,17 +175,80 @@ print(f"  Best val loss    : {ckpt.get('best_val', 0):.6f}\n")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Number of Parameters
+# ─────────────────────────────────────────────────────────────────────────────
+
+raw_model_np = getattr(model, "_orig_mod", model)
+
+def _count_params(module):
+    """Count total and trainable parameters of a module."""
+    total     = sum(p.numel() for p in module.parameters())
+    trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
+    return total, trainable
+
+total_params, total_trainable = _count_params(raw_model_np)
+
+# Sub-network breakdown
+subnet_info = {}
+if hasattr(raw_model_np, "calinet"):
+    c_total, c_train = _count_params(raw_model_np.calinet)
+    subnet_info["CaliNet"] = (c_total, c_train)
+if hasattr(raw_model_np, "posenet"):
+    p_total, p_train = _count_params(raw_model_np.posenet)
+    subnet_info["PoseNet"] = (p_total, p_train)
+
+print("─── Model Parameters ─────────────────────────────────────────────────")
+for name, (tot, train) in subnet_info.items():
+    print(f"  {name:<12} : {tot:>10,} params  ({train:>10,} trainable)")
+print(f"  {'AMagPoseNet':<12} : {total_params:>10,} params  ({total_trainable:>10,} trainable)")
+print("──────────────────────────────────────────────────────────────────────\n")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Inference
 # ─────────────────────────────────────────────────────────────────────────────
 
 print("Running inference ...")
 if args.batch_size <= 0:
     raise ValueError("--batch-size must be positive.")
+
+# --- Warm-up run (không tính thời gian) ---
+_warmup_in = volt_tensor[:min(args.batch_size, N)].to(device)
+with torch.no_grad():
+    _ = model(_warmup_in)
+if device.type == "cuda":
+    torch.cuda.synchronize()
+
+# --- Đo inference time: lặp 100 lần trên từng sample đơn lẻ (theo paper) ---
+_TIMING_REPEATS = 100
+_single = volt_tensor[:1].to(device)
+_times_ms: list[float] = []
+with torch.no_grad():
+    for _ in range(_TIMING_REPEATS):
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _t0 = time.perf_counter()
+        _ = model(_single)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _times_ms.append((time.perf_counter() - _t0) * 1000.0)
+
+infer_mean_ms = float(np.mean(_times_ms))
+infer_std_ms  = float(np.std(_times_ms))
+infer_fps     = 1000.0 / infer_mean_ms if infer_mean_ms > 0 else float("inf")
+
+# --- Full-dataset batched inference (dùng cho metrics) ---
+_t_full_start = time.perf_counter()
 with torch.no_grad():
     pred_scaled = np.concatenate([
         model(volt_tensor[start:start + args.batch_size].to(device)).float().cpu().numpy()
         for start in range(0, N, args.batch_size)
     ])
+if device.type == "cuda":
+    torch.cuda.synchronize()
+_t_full_end = time.perf_counter()
+total_infer_ms = (_t_full_end - _t_full_start) * 1000.0
+per_sample_ms  = total_infer_ms / N if N > 0 else 0.0
 
 pred_full = label_scaler.inverse_transform(pred_scaled)
 pred_xyz  = pred_full[:, :3]
@@ -229,6 +293,15 @@ print(f"  MAE x / y / z             : {m['mae_xyz_mm'][0]:.2f} / "
 print(f"  Mean orientation error    : {m['mean_ori_deg']:.3f}°")
 print(f"  RMSE orientation          : {m['rmse_ori_deg']:.3f}°")
 print(f"  Max  orientation error    : {m['max_ori_deg']:.3f}°")
+print("─────────────────────────────────────────────────────────────────────")
+print(f"  Total params (AMagPoseNet): {total_params:,}")
+for name, (tot, _) in subnet_info.items():
+    print(f"    {name:<10} : {tot:,}")
+print(f"  Inference time (1 sample) : {infer_mean_ms:.3f} ± {infer_std_ms:.3f} ms  "
+      f"(over {_TIMING_REPEATS} runs, device={device})")
+print(f"  Estimated throughput      : {infer_fps:.1f} FPS")
+print(f"  Full-set infer time       : {total_infer_ms:.1f} ms total  "
+      f"≈ {per_sample_ms:.3f} ms/sample  ({N} samples, batch={args.batch_size})")
 print("─────────────────────────────────────────────────────────────────────\n")
 
 
