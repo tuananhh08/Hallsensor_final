@@ -2,7 +2,7 @@
 # Test evaluation -- split train/valid
 # =============================================================================
 
-import argparse, sys, os, pickle, json, platform, csv
+import argparse, sys, os, pickle, json, platform, csv, time
 import numpy as np
 import pandas as pd
 import torch
@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--test_voltage", default="../Data set 18.6/grid_data.csv")
-parser.add_argument("--test_label",   default="../Data set 18.6/grid_points_coordinates.csv")
+parser.add_argument("--test_voltage", default="../Dataset/Helix_data_2.csv")
+parser.add_argument("--test_label",   default="../Dataset/Helix_points_coordinates_2.csv")
 parser.add_argument("--ckpt_dir",     default="./ckpt_mvec")
 parser.add_argument("--checkpoint",   default=None,
                     help="Checkpoint path; defaults to <ckpt_dir>/full_model_best.pt then best.pt.")
@@ -21,8 +21,12 @@ parser.add_argument("--code_dir",     default=".")
 parser.add_argument("--out",          default="test_result.png")
 args = parser.parse_args()
 
-sys.path.insert(0, args.code_dir)
-from model import Model  # noqa: E402
+_here = os.path.dirname(os.path.abspath(__file__))
+_repo_root = os.path.abspath(os.path.join(_here, "..", "..", ".."))
+sys.path.insert(0, _repo_root)
+sys.path.insert(0, os.path.join(_here, ".."))
+
+from Network_Architecture.model import Model  # noqa: E402
 
 # =============================================================================
 # Helpers
@@ -143,12 +147,72 @@ print(f"  Checkpoint epoch : {ckpt.get('epoch', '?')}")
 print(f"  Best val loss    : {ckpt.get('best_val', 0):.6f}\n")
 
 # =============================================================================
+# Number of Parameters
+# =============================================================================
+
+raw_model_np = model._orig_mod if hasattr(model, "_orig_mod") else model
+
+def _count_params(module):
+    """Count total and trainable parameters of a module."""
+    total     = sum(p.numel() for p in module.parameters())
+    trainable = sum(p.numel() for p in module.parameters() if p.requires_grad)
+    return total, trainable
+
+total_params, total_trainable = _count_params(raw_model_np)
+
+# Sub-network breakdown
+subnet_info = {}
+for sub_name in ("locnet", "calibnet", "calinet", "posenet"):
+    if hasattr(raw_model_np, sub_name):
+        s_tot, s_train = _count_params(getattr(raw_model_np, sub_name))
+        subnet_info[sub_name] = (s_tot, s_train)
+
+print("─── Model Parameters ─────────────────────────────────────────────────")
+for name, (tot, train) in subnet_info.items():
+    print(f"  {name:<12} : {tot:>10,} params  ({train:>10,} trainable)")
+print(f"  {'Model (total)':<12} : {total_params:>10,} params  ({total_trainable:>10,} trainable)")
+print("──────────────────────────────────────────────────────────────────────\n")
+
+# =============================================================================
 # Inference
 # =============================================================================
 
 print("Running inference ...")
+
+# --- Warm-up run (không tính thời gian) ---
+_warmup_in = volt_tensor[:1].to(device)
+with torch.no_grad():
+    _ = model(_warmup_in)
+if device.type == "cuda":
+    torch.cuda.synchronize()
+
+# --- Đo inference time: lặp 100 lần trên từng sample đơn lẻ (công bằng với benchmark) ---
+_TIMING_REPEATS = 100
+_single = volt_tensor[:1].to(device)
+_times_ms: list = []
+with torch.no_grad():
+    for _ in range(_TIMING_REPEATS):
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _t0 = time.perf_counter()
+        _ = model(_single)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        _times_ms.append((time.perf_counter() - _t0) * 1000.0)
+
+infer_mean_ms = float(sum(_times_ms) / len(_times_ms))
+infer_std_ms  = float((sum((x - infer_mean_ms)**2 for x in _times_ms) / len(_times_ms))**0.5)
+infer_fps     = 1000.0 / infer_mean_ms if infer_mean_ms > 0 else float("inf")
+
+# --- Full-dataset inference (dùng cho metrics) ---
+_t_full_start = time.perf_counter()
 with torch.no_grad():
     pred_scaled = model(volt_tensor.to(device)).float().cpu().numpy()  # (N, 6)
+if device.type == "cuda":
+    torch.cuda.synchronize()
+_t_full_end = time.perf_counter()
+total_infer_ms = (_t_full_end - _t_full_start) * 1000.0
+per_sample_ms  = total_infer_ms / N if N > 0 else 0.0
 
 pred_full = label_scaler.inverse_transform(pred_scaled)
 pred_xyz  = pred_full[:, :3]
@@ -199,6 +263,15 @@ print(f"  MAE x / y / z             : {mae_xyz[0]*1000:.2f} / "
 print(f"  Mean orientation error    : {mean_ori:.3f}°")
 print(f"  RMSE orientation          : {rmse_ori:.3f}°")
 print(f"  Max  orientation error    : {max_ori:.3f}°")
+print("────────────────────────────────────────────────────────────────────")
+print(f"  Total params (Model)      : {total_params:,}")
+for name, (tot, _) in subnet_info.items():
+    print(f"    {name:<10} : {tot:,}")
+print(f"  Inference time (1 sample) : {infer_mean_ms:.3f} ± {infer_std_ms:.3f} ms  "
+      f"(over {_TIMING_REPEATS} runs, device={device})")
+print(f"  Estimated throughput      : {infer_fps:.1f} FPS")
+print(f"  Full-set infer time       : {total_infer_ms:.1f} ms total  "
+      f"≈ {per_sample_ms:.3f} ms/sample  ({N} samples)")
 print("────────────────────────────────────────────────────────────────────\n")
 
 # =============================================================================
