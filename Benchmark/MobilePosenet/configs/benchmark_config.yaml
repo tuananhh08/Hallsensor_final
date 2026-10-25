@@ -1,0 +1,8 @@
+# Benchmark adaptation: repository input is one scalar 8×8 Hall map.
+# The IRAB backbone/training protocol follows the paper; its 6×4×4 coordinate
+# input is not available and is therefore not reproduced here.
+data: {synthetic_voltage: "Dataset/synthetic_grid_data.csv", synthetic_label: "Dataset/synthetic_grid_coordinates.csv"}
+split: {validation: 0.02, seed: 42}
+model: {input: "1x8x8 scalar Hall map", paper_input: "6x4x4 triaxial field + sensor coordinates"}
+training: {epochs: 256, batch_size: 3200, optimizer: Adam, lr: 1.0e-4, scheduler: cosine_to_zero, noise_std: 0.0, weight_decay: 0.0}
+loss: {position: euclidean, direction: euclidean, beta: 1.0}
