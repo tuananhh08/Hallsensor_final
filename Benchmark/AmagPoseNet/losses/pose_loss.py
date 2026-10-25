@@ -106,13 +106,14 @@ class CalibPoseLoss(nn.Module):
         beta:         float = 1.0,
         lambda_pos:   float = 1.0,
         lambda_calib: float = 0.1,
+        calib_reduction: str = "mean",
     ):
         super().__init__()
         if lambda_calib < 0:
             raise ValueError(f"lambda_calib must be >= 0, got {lambda_calib}")
         self.lambda_calib = lambda_calib
         self.pose_loss  = AMagPoseLoss(beta=beta, lambda_pos=lambda_pos)
-        self.calib_loss = CaliNetLoss()
+        self.calib_loss = CaliNetLoss(reduction=calib_reduction)
 
     def calibration_term(
         self,

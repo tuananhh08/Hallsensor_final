@@ -1,0 +1,21 @@
+# CRLocNet Sec. 3 defaults. Paths are relative to repository root.
+data:
+  raw_voltage: Dataset/Grid_add_Random_data.csv
+  clean_voltage: Dataset/Grid_add_Random_data_computed.csv
+  raw_label: Dataset/Grid_add_Random_points_coordinates.csv
+  synthetic_voltage: Dataset/synthetic_grid_data.csv
+  synthetic_label: Dataset/synthetic_grid_coordinates.csv
+  # Optional, paper multi-source input: theoretical EPM field CSVs (64 values/row here).
+  raw_epm: null
+  synthetic_epm: null
+training:
+  lr: 1.0e-4
+  batch_real: 32
+  batch_synthetic: 128
+  epochs: 200
+  noise_std: 0.0 # set after normalising 10 uT to the chosen input scale
+loss: {lambda_direction: 0.2, lambda_physics: 1.0e-4, lambda_alignment: 0.1}
+physics:
+  enabled: false # turn on only after supplying the rig's real geometry and IPM moment
+  sensor_pitch_m: 0.01
+  moment_am2: 1.0
