@@ -8,10 +8,10 @@ from torch.utils.data import DataLoader, RandomSampler
 def default_num_workers(device=None) -> int:
     """Return a sensible default worker count for the current platform.
 
-    Uses 4 workers on non-macOS CUDA setups; falls back to 0 elsewhere
+    Uses 2 workers on non-macOS CUDA setups; falls back to 0 elsewhere
     (macOS multiprocessing with DataLoader can be slow/buggy).
     """
-    return 4 if (device is not None and device.type == "cuda" and platform.system() != "Darwin") else 0
+    return 2 if (device is not None and device.type == "cuda" and platform.system() != "Darwin") else 0
 
 
 def make_loaders(train_ds, val_ds, batch_size, num_workers, device,
