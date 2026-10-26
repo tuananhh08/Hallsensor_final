@@ -1,10 +1,3 @@
-"""Training stages prescribed by CRLocNet Sec. 3.2.
-
-The data loaders use the repository's cached, scaled tensors.  The optional
-physics term is deliberately evaluated in that same normalised field domain;
-for a calibrated SI forward model pass ``physics_field_fn`` that returns a
-field with the identical layout and scale as ``corrected``.
-"""
 from __future__ import annotations
 import json, time
 from pathlib import Path
@@ -43,8 +36,7 @@ def _fit(*, phase, model, loaders, criterion, step_fn, ckpt_dir, epochs, lr_grou
     opt = torch.optim.AdamW(lr_groups, weight_decay=weight_decay); sched = _scheduler(opt, epochs, warmup, eta_min)
     use_amp = device.type == "cuda"; scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
     base = model.to(device); compiled = torch.compile(base) if compile_model and use_amp else base
-    # Deliberately mirrors the three-phase AMagPoseNet artifact convention so
-    # benchmark notebooks can be read side-by-side.
+
     best_names = {"modnet": "modnet_pretrained.pt", "locnet": "locnet_pretrained.pt", "crlocnet": "full_model_best.pt"}
     last_names = {"modnet": "modnet_last.pt", "locnet": "locnet_last.pt", "crlocnet": "full_model_last.pt"}
     best, stale = float("inf"), 0; log = ckpt_dir / f"train_log_{phase}.json"; best_path = ckpt_dir / best_names[phase]
@@ -79,19 +71,40 @@ def _fit(*, phase, model, loaders, criterion, step_fn, ckpt_dir, epochs, lr_grou
 def train_modnet(train_loader, val_loader, *, channels=1, width=64, ckpt_dir, epochs=200, lr=1e-4, noise_std=0., **kw):
     model=ModNet(channels,width); loss=ModNetLoss()
     def step(net,batch,criterion):
-        # Stage 1 (exactly as the user's three-phase benchmark): raw -> clean.
-        # Optional synthetic Gaussian perturbation can be used as augmentation.
+
         raw,target=batch[:2]
         if net.training and noise_std: raw=raw+torch.randn_like(raw)*noise_std
         value=criterion(net(raw),target); return {"total":value,"alignment":value}
-    return _fit(phase="modnet",model=model,loaders=(train_loader,val_loader),criterion=loss,step_fn=step,lr_groups=[{"params":model.parameters(),"lr":lr}],**kw)
+        
+    return _fit(
+    phase="modnet",
+    model=model,
+    loaders=(train_loader, val_loader),
+    criterion=loss,
+    step_fn=step,
+    ckpt_dir=ckpt_dir,
+    epochs=epochs,
+    lr_groups=[{"params": model.parameters(), "lr": lr}],
+    **kw
+)
 
 def pretrain_locnet(train_loader,val_loader,*,channels=1,width=64,ckpt_dir,epochs=200,lr=1e-4,lambda_direction=.2,**kw):
     model=LocNet(channels,width); loss=CRLocLoss(lambda_direction,0.)
     def step(net,batch,criterion):
-        # Stage 2: synthetic field + synthetic pose only.
+
         field,epm,pose=batch; pred=net(field,epm); total,p,d,ph=criterion(pred,pose); return {"total":total,"position":p,"direction":d,"physics":ph}
-    return _fit(phase="locnet",model=model,loaders=(train_loader,val_loader),criterion=loss,step_fn=step,lr_groups=[{"params":model.parameters(),"lr":lr}],**kw)
+        
+    return _fit(
+    phase="locnet",
+    model=model,
+    loaders=(train_loader, val_loader),
+    criterion=loss,
+    step_fn=step,
+    ckpt_dir=ckpt_dir,
+    epochs=epochs,
+    lr_groups=[{"params": model.parameters(), "lr": lr}],
+    **kw
+)
 
 def finetune(train_loader,val_loader,*,modnet_checkpoint,locnet_checkpoint,channels=1,width=64,ckpt_dir,epochs=200,lr_modnet=1e-4,lr_locnet=1e-4,lambda_direction=.2,lambda_physics=1e-4,lambda_alignment=.1,physics_forward=None,**kw):
     model=CRLocNet(channels,width); _load(model.modnet,modnet_checkpoint,"modnet_state_dict",kw["device"]); _load(model.locnet,locnet_checkpoint,"locnet_state_dict",kw["device"]); loss=CRLocLoss(lambda_direction,lambda_physics)
@@ -99,11 +112,21 @@ def finetune(train_loader,val_loader,*,modnet_checkpoint,locnet_checkpoint,chann
         # Stage 3: jointly update both ModNet and LocNet from real
         # (raw, clean/model-domain, pose) triples.
         raw,model_field,epm,pose=batch; pred,aux=net(raw,epm,True)
-        # The physical target is the IPM field after EPM background removal.
         # ``physics_forward`` maps predicted pose to the same scaled field domain.
         pred_field = physics_forward(pred) if physics_forward is not None else None
         total,p,d,ph=criterion(pred,pose,pred_field,aux["corrected"] - epm)
         align=nn.functional.l1_loss(aux["corrected"],model_field)
         return {"total":total+lambda_alignment*align,"position":p,"direction":d,"physics":ph,"alignment":align}
     groups=[{"params":model.modnet.parameters(),"lr":lr_modnet},{"params":model.locnet.parameters(),"lr":lr_locnet}]
-    return _fit(phase="crlocnet",model=model,loaders=(train_loader,val_loader),criterion=loss,step_fn=step,lr_groups=groups,**kw)
+    
+    return _fit(
+    phase="crlocnet",
+    model=model,
+    loaders=(train_loader, val_loader),
+    criterion=loss,
+    step_fn=step,
+    ckpt_dir=ckpt_dir,
+    epochs=epochs,
+    lr_groups=groups,
+    **kw
+)
