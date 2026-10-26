@@ -81,7 +81,6 @@ args = parser.parse_args()
 MU0_OVER_4PI = 1e-7         # μ₀/4π  [T·m/A]
 SENSOR_DIR   = np.array([0.0, 0.0, 1.0])  # Hall sensors measure Z-component
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,10 +168,9 @@ def mvec_to_pose_angles(m: np.ndarray):
     Inverse of pose_to_mvec.
     """
     m = m / (np.linalg.norm(m) + 1e-14)
-    alpha = np.arccos(np.clip(m[2], -1.0, 1.0))        # [0, π]
-    beta  = np.arctan2(m[1], m[0]) + np.pi             # shift for sin(-α·cb)
-    # More robust: directly use atan2 on the projected components
-    # m = [-sa*cb, -sa*sb, ca] → beta = atan2(-sa*sb, -sa*cb) = atan2(my, mx)
+    alpha = np.arccos(np.clip(m[2], -1.0, 1.0))        
+    beta  = np.arctan2(m[1], m[0]) + np.pi            
+
     beta = np.arctan2(m[1], m[0])
     return alpha, beta
 
@@ -431,7 +429,7 @@ ori_mean_running  = np.cumsum(ori_err_deg)  / sample_idx
 ori_rmse_running  = np.sqrt(np.cumsum(ori_err_deg ** 2) / sample_idx)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Console output (format matches test_mvec.py for easy benchmark comparison)
+# Console output 
 # ─────────────────────────────────────────────────────────────────────────────
 
 print(f"\n  {'Pt':<5} {'PX':>8} {'PY':>8} {'PZ':>8} "
