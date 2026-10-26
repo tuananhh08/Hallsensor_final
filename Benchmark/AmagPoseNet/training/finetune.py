@@ -26,6 +26,7 @@ import torch.nn as nn
 
 from ..models.amagposenet import AMagPoseNet
 from ..losses.pose_loss import CalibPoseLoss
+from .artifacts import save_loss_plot
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -258,5 +259,6 @@ def finetune(
             print(f"[Stage3] Early stopping after {patience} unimproved epochs.")
             break
 
+    save_loss_plot(log_path, ckpt_dir / "loss_plot_finetune.png", "AMagPoseNet finetune loss")
     print(f"\n[Stage3] Done. Best val loss: {best:.6f}  |  {best_path}")
     return best_path

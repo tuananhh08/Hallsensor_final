@@ -55,6 +55,8 @@ parser.add_argument("--device",        choices=("auto", "cuda", "cpu"), default=
 parser.add_argument("--compile",       action=argparse.BooleanOptionalAction, default=False)
 parser.add_argument("--out",           required=True, help="Output 3-D trajectory PNG.")
 parser.add_argument("--out-csv",       default=None, help="Default: <ckpt_dir>/testresult_amagposenet.csv")
+parser.add_argument("--results-log",   default=None,
+                    help="JSON summary path (default: <ckpt_dir>/test_results_amagposenet.json).")
 args = parser.parse_args()
 
 
@@ -339,6 +341,30 @@ with open(csv_path, "w", newline="") as f:
             round(float(ori_err_deg[i]), 3),
         ])
 print(f"Saved CSV : {csv_path}")
+
+results_log = args.results_log or os.path.join(args.ckpt_dir, "test_results_amagposenet.json")
+os.makedirs(os.path.dirname(os.path.abspath(results_log)), exist_ok=True)
+with open(results_log, "w", encoding="utf-8") as f:
+    json.dump({
+        "model": "AMagPoseNet",
+        "checkpoint": os.path.abspath(ckpt_path),
+        "checkpoint_epoch": ckpt.get("epoch"),
+        "test_samples": N,
+        "metrics": {
+            key: value.tolist() if isinstance(value, np.ndarray) else float(value)
+            for key, value in m.items() if key not in {"pos_errors_mm", "ori_errors_deg"}
+        },
+        "timing": {
+            "single_sample_mean_ms": infer_mean_ms,
+            "single_sample_std_ms": infer_std_ms,
+            "full_set_ms": total_infer_ms,
+            "per_sample_ms": per_sample_ms,
+            "throughput_fps": infer_fps,
+            "timing_repeats": _TIMING_REPEATS,
+        },
+        "parameters": {"total": total_params, "trainable": total_trainable},
+    }, f, indent=2)
+print(f"Saved results log : {results_log}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

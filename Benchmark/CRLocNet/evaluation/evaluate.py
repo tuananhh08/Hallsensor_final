@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import pickle
 import platform
 import sys
@@ -55,7 +56,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", default="full_model_best.pt"); parser.add_argument("--scalers")
     parser.add_argument("--batch-size", type=int, default=512); parser.add_argument("--device", choices=("auto", "cuda", "cpu"), default="auto")
     parser.add_argument("--compile", action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--timing-repeats", type=int, default=100); parser.add_argument("--out", required=True); parser.add_argument("--out-csv")
+    parser.add_argument("--timing-repeats", type=int, default=100); parser.add_argument("--out", required=True); parser.add_argument("--out-csv"); parser.add_argument("--results-log", help="JSON summary path (default: <ckpt-dir>/test_results_crlocnet.json).")
     args = parser.parse_args()
     if args.batch_size <= 0 or args.timing_repeats <= 0:
         raise ValueError("--batch-size and --timing-repeats must be positive.")
@@ -147,6 +148,19 @@ def main() -> None:
         writer = csv.writer(file); writer.writerow(["Point", "Pred_X", "Pred_Y", "Pred_Z", "GT_X", "GT_Y", "GT_Z", "PosErr_mm", "Pred_mx", "Pred_my", "Pred_mz", "GT_mx", "GT_my", "GT_mz", "OriErr_deg"])
         for i in range(n): writer.writerow([i, *np.round(pred_xyz[i], 4), *np.round(gt_xyz[i], 4), round(float(pos_err[i]), 2), *np.round(pred_mvec[i], 4), *np.round(gt_mvec[i], 4), round(float(ori_err[i]), 3)])
     print(f"Saved CSV : {csv_path}")
+    results_log = Path(args.results_log) if args.results_log else Path(args.ckpt_dir) / "test_results_crlocnet.json"
+    results_log.parent.mkdir(parents=True, exist_ok=True)
+    results_log.write_text(json.dumps({
+        "model": "CRLocNet", "checkpoint": str(checkpoint_path.resolve()),
+        "checkpoint_epoch": checkpoint.get("epoch"), "test_samples": n,
+        "metrics": {key: value.tolist() if isinstance(value, np.ndarray) else float(value)
+                    for key, value in metrics.items() if key not in {"pos_errors_mm", "ori_errors_deg"}},
+        "timing": {"single_sample_mean_ms": latency_mean, "single_sample_std_ms": latency_std,
+                   "full_set_ms": full_infer_ms, "per_sample_ms": full_infer_ms / n,
+                   "throughput_fps": 1000.0 / latency_mean, "timing_repeats": args.timing_repeats},
+        "parameters": {"total": total_params, "trainable": total_trainable},
+    }, indent=2), encoding="utf-8")
+    print(f"Saved results log : {results_log}")
 
     fig = plt.figure(figsize=(10, 7)); ax = fig.add_subplot(111, projection="3d")
     ax.scatter(*gt_xyz.T, color="blue", s=35, label="Ground Truth"); ax.scatter(*pred_xyz.T, color="red", s=35, marker="x", label="Predicted")

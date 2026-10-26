@@ -30,6 +30,7 @@ import torch.nn as nn
 
 from ..models.calinet import CaliNet
 from ..losses.calinet_loss import CaliNetLoss
+from .artifacts import save_loss_plot
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -229,5 +230,6 @@ def train_calinet(
             print(f"[Stage1] Early stopping after {patience} unimproved epochs.")
             break
 
+    save_loss_plot(log_path, ckpt_dir / "loss_plot_calinet.png", "AMagPoseNet CaliNet training loss")
     print(f"\n[Stage1] Done. Best val loss: {best:.6f}  |  {best_path}")
     return best_path

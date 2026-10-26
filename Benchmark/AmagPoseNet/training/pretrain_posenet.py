@@ -26,6 +26,7 @@ import torch.nn as nn
 
 from ..models.posenet import PoseNet
 from ..losses.pose_loss import AMagPoseLoss
+from .artifacts import save_loss_plot
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,5 +218,6 @@ def pretrain_posenet(
             print(f"[Stage2] Early stopping after {patience} unimproved epochs.")
             break
 
+    save_loss_plot(log_path, ckpt_dir / "loss_plot_posenet.png", "AMagPoseNet PoseNet training loss")
     print(f"\n[Stage2] Done. Best val loss: {best:.6f}  |  {best_path}")
     return best_path

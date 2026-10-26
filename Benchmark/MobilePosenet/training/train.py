@@ -7,6 +7,7 @@ import torch
 from torch import nn
 from ..losses import MobilePoseLoss
 from ..models import MobilePoseNet
+from .artifacts import save_loss_plot
 
 
 def _save(path, epoch, model, optimizer, scheduler, best, metrics):
@@ -14,7 +15,7 @@ def _save(path, epoch, model, optimizer, scheduler, best, metrics):
     torch.save({"phase": "theoretical", "epoch": epoch, "best_val": best, "metrics": metrics, "model_state_dict": raw.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "scheduler_state_dict": scheduler.state_dict()}, path)
 
 
-def train_theoretical(train_loader, val_loader, *, ckpt_dir: Path, epochs: int = 256, lr: float = 1e-4, beta: float = 1.0, weight_decay: float = 0., grad_clip_norm: float = 1., device: torch.device | None = None, compile_model: bool = True) -> Path:
+def train_theoretical(train_loader, val_loader, *, ckpt_dir: Path, epochs: int = 256, lr: float = 1e-4, beta: float = 1.0, weight_decay: float = 0., grad_clip_norm: float = 1., save_every: int = 5, device: torch.device | None = None, compile_model: bool = True) -> Path:
     """Train only on theoretical data; noise injection belongs in the dataset."""
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ckpt_dir = Path(ckpt_dir); ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -26,6 +27,7 @@ def train_theoretical(train_loader, val_loader, *, ckpt_dir: Path, epochs: int =
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=0.)
     criterion = MobilePoseLoss(beta); amp = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
     best, history, best_path = float("inf"), [], ckpt_dir / "mobileposenet_best.pt"
+    if save_every <= 0: raise ValueError("save_every must be positive.")
 
     def run(loader, training):
         model.train(training); sums = {"total": 0., "position": 0., "direction": 0.}; seen = 0
@@ -49,5 +51,7 @@ def train_theoretical(train_loader, val_loader, *, ckpt_dir: Path, epochs: int =
         (ckpt_dir / "train_log.json").write_text(json.dumps(history, indent=2))
         _save(ckpt_dir / "mobileposenet_last.pt", epoch, base, optimizer, scheduler, best, entry)
         if val["total"] < best: best = val["total"]; _save(best_path, epoch, base, optimizer, scheduler, best, entry)
+        if epoch % save_every == 0: _save(ckpt_dir / f"mobileposenet_epoch_{epoch:04d}.pt", epoch, base, optimizer, scheduler, best, entry)
         print(f"[MobilePoseNet] {epoch:03d}/{epochs}: val={val['total']:.6f} pos={val['position']:.6f} dir={val['direction']:.6f} ({entry['seconds']:.1f}s)")
+    save_loss_plot(ckpt_dir / "train_log.json", ckpt_dir / "loss_plot_theoretical.png", "MobilePoseNet training loss")
     return best_path

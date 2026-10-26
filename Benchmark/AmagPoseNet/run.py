@@ -1,12 +1,3 @@
-"""Colab-friendly CLI for the three AMagPoseNet training stages.
-
-Run from the repository root, for example:
-
-    python -m Benchmark.AmagPoseNet.run --stage calinet ...
-
-All dataset locations, optimizer settings, scheduler settings, and loss weights
-are CLI arguments so one launcher can be used for controlled benchmarks.
-"""
 from __future__ import annotations
 
 import argparse
@@ -22,16 +13,15 @@ import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-for module_dir in (REPO_ROOT, REPO_ROOT / "Network Architecture", REPO_ROOT / "Losses"):
+for module_dir in (REPO_ROOT, REPO_ROOT / "Network_Architecture", REPO_ROOT / "Losses"):
     if str(module_dir) not in sys.path:
         sys.path.insert(0, str(module_dir))
 
-from train_mvec import MultiMemmapDataset, prepare_cache  # noqa: E402
-from training_loop import default_num_workers, make_loaders  # noqa: E402
-from Benchmark.AmagPoseNet.training.finetune import finetune  # noqa: E402
-from Benchmark.AmagPoseNet.training.pretrain_posenet import pretrain_posenet  # noqa: E402
-from Benchmark.AmagPoseNet.training.train_calinet import train_calinet  # noqa: E402
-
+from train_mvec import MultiMemmapDataset, prepare_cache  
+from training_loop import default_num_workers, make_loaders  
+from Benchmark.AmagPoseNet.training.finetune import finetune  
+from Benchmark.AmagPoseNet.training.pretrain_posenet import pretrain_posenet  
+from Benchmark.AmagPoseNet.training.train_calinet import train_calinet  
 
 def _path(value: str) -> Path:
     return Path(value).expanduser().resolve()

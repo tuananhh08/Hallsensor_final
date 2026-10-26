@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
-ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT)); sys.path.insert(0,str(ROOT/"Network Architecture"))
+ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT)); sys.path.insert(0,str(ROOT/"Network_Architecture"))
 from train_mvec import MultiMemmapDataset, prepare_cache
 from training_loop import default_num_workers, make_loaders
 from Benchmark.CRLocNet.training import train_modnet, pretrain_locnet, finetune

@@ -1,6 +1,6 @@
 """Evaluate MobilePoseNet with the exact benchmark outputs of AMagPoseNet/test_mvec."""
 from __future__ import annotations
-import argparse, csv, pickle, sys, time
+import argparse, csv, json, pickle, sys, time
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,7 +23,7 @@ def paired(voltage, label):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--test-voltage", required=True); p.add_argument("--test-label", required=True); p.add_argument("--ckpt-dir", required=True); p.add_argument("--checkpoint", default="mobileposenet_best.pt"); p.add_argument("--scalers"); p.add_argument("--out", required=True); p.add_argument("--out-csv"); p.add_argument("--batch-size", type=int, default=512); p.add_argument("--timing-repeats", type=int, default=100); p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto"); a = p.parse_args()
+    p.add_argument("--test-voltage", required=True); p.add_argument("--test-label", required=True); p.add_argument("--ckpt-dir", required=True); p.add_argument("--checkpoint", default="mobileposenet_best.pt"); p.add_argument("--scalers"); p.add_argument("--out", required=True); p.add_argument("--out-csv"); p.add_argument("--results-log", help="JSON summary path (default: <ckpt-dir>/test_results_mobileposenet.json)."); p.add_argument("--batch-size", type=int, default=512); p.add_argument("--timing-repeats", type=int, default=100); p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto"); a = p.parse_args()
     voltage, label = paired(a.test_voltage, a.test_label)
     if voltage.shape[1] != 64 or label.shape[1] != 6: raise ValueError("Expected 64 voltage columns and 6 labels [x,y,z,mx,my,mz].")
     raw, gt = voltage.to_numpy(np.float32), label.to_numpy(np.float32); n = len(raw)
@@ -61,6 +61,9 @@ def main():
         writer = csv.writer(f); writer.writerow(["Point","Pred_X","Pred_Y","Pred_Z","GT_X","GT_Y","GT_Z","PosErr_mm","Pred_mx","Pred_my","Pred_mz","GT_mx","GT_my","GT_mz","OriErr_deg"])
         for i in range(n): writer.writerow([i,*np.round(full[i,:3],4),*np.round(gt[i,:3],4),round(float(pos[i]),2),*np.round(scaled[i,3:],4),*np.round(gt_mvec[i],4),round(float(ori[i]),3)])
     print(f"Saved CSV : {csv_path}")
+    results_log = Path(a.results_log) if a.results_log else Path(a.ckpt_dir) / "test_results_mobileposenet.json"; results_log.parent.mkdir(parents=True, exist_ok=True)
+    results_log.write_text(json.dumps({"model": "MobilePoseNet", "checkpoint": str((Path(a.ckpt_dir) / a.checkpoint).resolve()), "checkpoint_epoch": ck.get("epoch"), "test_samples": n, "metrics": {key: value.tolist() if isinstance(value, np.ndarray) else float(value) for key, value in m.items() if key not in {"pos_errors_mm", "ori_errors_deg"}}, "timing": {"single_sample_mean_ms": latency, "single_sample_std_ms": latency_std, "full_set_ms": full_ms, "per_sample_ms": full_ms / n, "throughput_fps": 1000 / latency, "timing_repeats": a.timing_repeats}, "parameters": {"total": total, "trainable": trainable}}, indent=2), encoding="utf-8")
+    print(f"Saved results log : {results_log}")
     fig = plt.figure(figsize=(10,7)); ax=fig.add_subplot(111,projection="3d"); ax.scatter(*gt[:,:3].T,color="blue",s=35,label="Ground Truth"); ax.scatter(*full[:,:3].T,color="red",s=35,marker="x",label="Predicted")
     for i in range(n): ax.plot([gt[i,0],full[i,0]],[gt[i,1],full[i,1]],[gt[i,2],full[i,2]],color="gray",lw=.5,alpha=.5)
     ax.set(xlabel="X (m)",ylabel="Y (m)",zlabel="Z (m)",title=f"MobilePoseNet – Test Set ({n} pts)\nPosition Error — Mean: {m['mean_pos_mm']:.2f} mm  RMSE: {m['rmse_pos_mm']:.2f} mm  Max: {m['max_pos_mm']:.2f} mm\nOrientation Error — Mean: {m['mean_ori_deg']:.2f}°  RMSE: {m['rmse_ori_deg']:.2f}°  Max: {m['max_ori_deg']:.2f}°"); ax.legend(); fig.tight_layout(); fig.savefig(out,dpi=150,bbox_inches="tight"); print(f"Saved Figure 1 : {out}")

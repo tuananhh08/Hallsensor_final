@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from ..models import ModNet, LocNet, CRLocNet
 from ..losses import ModNetLoss, CRLocLoss
+from .artifacts import save_loss_plot
 
 def _write(path: Path, item: dict):
     history = json.loads(path.read_text()) if path.exists() else []
@@ -66,6 +67,7 @@ def _fit(*, phase, model, loaders, criterion, step_fn, ckpt_dir, epochs, lr_grou
         else: stale += 1
         if epoch % save_every == 0: _save(ckpt_dir/f"{phase}_epoch_{epoch:04d}.pt",phase,epoch,base,opt,sched,best,entry)
         if stale >= patience: print(f"[{phase}] early stopping"); break
+    save_loss_plot(log, ckpt_dir / f"loss_plot_{phase}.png", f"CRLocNet {phase} training loss")
     return best_path
 
 def train_modnet(train_loader, val_loader, *, channels=1, width=64, ckpt_dir, epochs=200, lr=1e-4, noise_std=0., **kw):
