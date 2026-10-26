@@ -21,8 +21,14 @@ class ModNet(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        spatial_shape = None
         if x.ndim == 4:  # cache used by the existing benchmark: [B,C,8,8]
+            spatial_shape = x.shape
             x = x.flatten(2)
         if x.ndim != 3:
             raise ValueError(f"Expected [B,C,S] or [B,C,H,W], got {tuple(x.shape)}")
-        return x + self.body(x)
+        corrected = x + self.body(x)
+        # Keep the caller's layout.  This is required for ModNet pretraining,
+        # where the cached clean target remains [B, C, 8, 8], and for the
+        # Stage-3 alignment loss.  LocNet already flattens 4-D fields itself.
+        return corrected.reshape(spatial_shape) if spatial_shape is not None else corrected
